@@ -21,4 +21,4 @@ export function offsetKm(aLat: number, aLng: number, bLat: number, bLng: number)
   return { x, z };
 }
 
-export const RADIUS_KM = 5;
+export const RADIUS_KM = 50;
