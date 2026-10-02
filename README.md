@@ -35,6 +35,7 @@ npm run typecheck   # TypeScript check without building
 | Category | `/c/[slug]` | Product grid with sorting and an in-stock filter |
 | Search | `/search?q=` | Results for a search; the search box also suggests as you type |
 | Product | `/p/[id]` | 3D pack you can turn, price, delivery time, every nearby shop that sells it |
+| Shops near you | `/shops` | Street map and list of every shop within 5 km, with filters |
 | Shop | `/store/[id]` | One shop's own products and prices |
 | Checkout | `/checkout` | Address, smart store selection with a live comparison, payment |
 | Orders | `/orders` | Order history, track or order again |
@@ -51,6 +52,7 @@ scenes/         three.js scenes: radius.ts (home), pack.ts (product), track.ts (
 lib/data.ts     Sample shops, products, stock and prices
 lib/nearby.ts   Distance, opening hours, delivery time for each shop
 lib/select.ts   Smart store selection (distance, stock, price, workload, delivery time)
+lib/mapmath.ts  Map projection maths for the street map on the Shops page
 lib/orders.ts   Order stages and the demo clock
 lib/state.ts    Cart, login, addresses and orders, saved in the browser
 tests/          Unit tests (Node's built-in test runner)
@@ -115,6 +117,12 @@ minikube image load localrush-web:local
 kubectl apply -f k8s/
 kubectl port-forward -n localrush service/localrush-web 8080:80
 ```
+
+## Map
+
+The Shops page draws its own map: tiles come from OpenStreetMap, and the markers, 5 km ring
+and popup are LocalRush's own. OpenStreetMap's tile server is fine for a project demo; for a
+real launch, switch the tile address in `components/ShopMap.tsx` to a paid tile provider.
 
 ## Fonts
 

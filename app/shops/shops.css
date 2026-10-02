@@ -1,0 +1,389 @@
+/* Shops near you: street map on the left, list on the right. */
+
+.sm-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-bottom: 14px;
+}
+
+.sm-head .title {
+  margin: 0 0 4px;
+}
+
+.sm-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 18px;
+  margin-bottom: 12px;
+}
+
+.sm-filters .tabs {
+  flex: 1 1 320px;
+  min-width: 0;
+  margin: 0;
+}
+
+.sm-layout {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (min-width: 900px) {
+  .sm-layout {
+    grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
+    gap: 20px;
+  }
+}
+
+/* ---------- Map ---------- */
+
+.sm-map {
+  position: relative;
+  height: 360px;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--line);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  /* Shown while tiles load, or if they cannot load at all. */
+  background-color: #e8eef5;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.7) 2px, transparent 2px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.7) 2px, transparent 2px);
+  background-size: 64px 64px;
+}
+
+.sm-map:active {
+  cursor: grabbing;
+}
+
+@media (min-width: 900px) {
+  .sm-map {
+    position: sticky;
+    top: 92px;
+    height: min(640px, calc(100dvh - 120px));
+    min-height: 420px;
+  }
+}
+
+.sm-tiles {
+  position: absolute;
+  inset: 0;
+  /* Quieten the street map so LocalRush's own colours carry the page. */
+  filter: grayscale(0.85) contrast(0.92) brightness(1.05);
+}
+
+.sm-tiles img {
+  position: absolute;
+  width: 256px;
+  height: 256px;
+  max-width: none;
+  pointer-events: none;
+}
+
+.sm-tint {
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 122, 117, 0.09);
+  pointer-events: none;
+}
+
+.sm-ring {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 3px dashed var(--gold);
+  background: rgba(11, 122, 117, 0.07);
+  pointer-events: none;
+}
+
+.sm-you {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: grid;
+  justify-items: center;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.sm-you span {
+  background: var(--ink);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.sm-you i {
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  margin-bottom: -7px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 3px #fff, 0 0 0 9px rgba(217, 54, 54, 0.22);
+}
+
+.sm-pin {
+  position: absolute;
+  width: 38px;
+  height: 38px;
+  margin: -46px 0 0 -19px;
+  border-radius: 50% 50% 50% 4px;
+  transform: rotate(-45deg);
+  transform-origin: 50% 100%;
+  background: var(--pin);
+  box-shadow: 0 0 0 2.5px #fff, 0 6px 14px rgba(23, 20, 43, 0.3);
+  display: grid;
+  place-items: center;
+  z-index: 3;
+  transition: transform 0.15s ease-out, box-shadow 0.15s;
+}
+
+.sm-pin span {
+  transform: rotate(45deg);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  line-height: 1;
+  font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+}
+
+.sm-pin.on {
+  z-index: 5;
+  transform: rotate(-45deg) scale(1.22);
+  box-shadow: 0 0 0 3px var(--ink), 0 8px 18px rgba(23, 20, 43, 0.35);
+}
+
+.sm-closed {
+  background: #9aa1b2;
+}
+
+.sm-closed span {
+  filter: grayscale(1);
+  opacity: 0.8;
+}
+
+.sm-far {
+  width: 28px;
+  height: 28px;
+  margin: -34px 0 0 -14px;
+  background: #b9bfcc;
+  opacity: 0.8;
+  z-index: 1;
+}
+
+.sm-far span {
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  filter: grayscale(1);
+}
+
+.sm-pop {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 58px));
+  z-index: 6;
+  background: var(--card);
+  border-radius: 16px;
+  padding: 12px 14px;
+  width: max-content;
+  max-width: 240px;
+  display: grid;
+  gap: 2px;
+  box-shadow: 0 14px 34px rgba(23, 20, 43, 0.28);
+  cursor: default;
+  animation: rise 0.18s ease-out;
+}
+
+.sm-pop b {
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.sm-pop span {
+  font-size: 13px;
+  color: var(--mute);
+}
+
+.sm-pop .btn {
+  margin-top: 8px;
+  justify-self: start;
+}
+
+.sm-tools {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 7;
+  display: grid;
+  gap: 6px;
+}
+
+.sm-tools button {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 8px rgba(23, 20, 43, 0.2);
+}
+
+.sm-tools button:hover:not(:disabled) {
+  color: var(--teal);
+}
+
+.sm-key,
+.sm-credit {
+  position: absolute;
+  bottom: 10px;
+  z-index: 7;
+  background: rgba(255, 255, 255, 0.88);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.sm-key {
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.sm-key i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px dashed #c98a00;
+}
+
+.sm-credit {
+  right: 10px;
+  color: var(--mute);
+}
+
+@media (max-width: 899px) {
+  .sm-key {
+    top: 10px;
+    bottom: auto;
+  }
+}
+
+.sm-credit:hover {
+  color: var(--teal);
+}
+
+/* ---------- List ---------- */
+
+.sm-side {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.sm-list {
+  display: grid;
+  gap: 10px;
+}
+
+.sm-row {
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+  transition: box-shadow 0.15s;
+  scroll-margin: 100px;
+}
+
+.sm-row.hover {
+  box-shadow: inset 0 0 0 1.5px var(--teal);
+}
+
+.sm-row.on {
+  box-shadow: inset 0 0 0 2px var(--teal);
+  background: var(--teal-t);
+}
+
+.sm-row-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.sm-row-main i {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  font-size: 20px;
+  font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+}
+
+.sm-row-main > span {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  line-height: 1.35;
+}
+
+.sm-row-main b {
+  font-size: 15.5px;
+}
+
+.sm-row-main small {
+  font-size: 13px;
+  color: var(--mute);
+}
+
+.sm-row-main em {
+  font-style: normal;
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--teal);
+  white-space: nowrap;
+}
+
+.sm-row.closed .sm-row-main em {
+  color: var(--mute);
+  font-weight: 600;
+}
+
+.sm-row.closed .sm-row-main i {
+  filter: grayscale(0.9);
+  opacity: 0.7;
+}
+
+.sm-row .link {
+  justify-self: start;
+  margin-left: 52px;
+  font-size: 14px;
+}
+
+.sm-empty {
+  background: var(--card);
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}

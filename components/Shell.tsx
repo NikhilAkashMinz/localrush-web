@@ -480,6 +480,7 @@ function Footer() {
           <p>Shops you already know, delivered from within 5 km.</p>
         </div>
         <nav aria-label="Footer">
+          <Link href="/shops">Shops near you</Link>
           <Link href="/orders">Your orders</Link>
           <Link href="/account">Account</Link>
           <button type="button" onClick={() => actions.open('place')}>

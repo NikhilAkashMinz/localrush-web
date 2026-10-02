@@ -105,6 +105,12 @@ export default function HomePage() {
 
       {inRange.length > 0 && (
         <section className="shops" aria-label="Shops around you">
+          <header className="shelf-head">
+            <h2>Shops around you</h2>
+            <Link href="/shops" className="link">
+              See them on a map
+            </Link>
+          </header>
           <div className="shops-track">
             {inRange.map((n) => (
               <Link
