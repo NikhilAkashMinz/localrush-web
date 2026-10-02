@@ -1,0 +1,259 @@
+/* Login page: a market stall on the left, the form on the right. */
+
+.lg-wrap {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px var(--gut) 48px;
+}
+
+.lg-card {
+  background: var(--card);
+  border-radius: 28px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow: hidden;
+  display: grid;
+}
+
+.lg-scene {
+  background: #e8eef5;
+  overflow: hidden;
+  aspect-ratio: 440 / 372;
+}
+
+.lg-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.lg-form {
+  padding: 28px 24px 32px;
+  display: grid;
+  gap: 18px;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+}
+
+.lg-form h1 {
+  font-size: clamp(28px, 3.4vw, 36px);
+  font-weight: 800;
+  margin-top: 4px;
+}
+
+.lg-form form {
+  width: min(320px, 100%);
+  display: grid;
+  gap: 18px;
+  text-align: left;
+}
+
+.lg-field {
+  display: grid;
+  gap: 2px;
+}
+
+.lg-field span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mute);
+}
+
+.lg-field input {
+  width: 100%;
+  border: 0;
+  border-bottom: 2px solid var(--line);
+  border-radius: 0;
+  background: none;
+  padding: 8px 0;
+  font-size: 17px;
+  font-weight: 600;
+  transition: border-color 0.2s;
+}
+
+.lg-field input:focus {
+  outline: 0;
+  border-bottom-color: var(--teal);
+}
+
+.lg-field input.lg-code {
+  font-family: var(--display);
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 0.45em;
+  text-align: center;
+}
+
+.lg-form .btn {
+  border-radius: 999px;
+  padding: 14px 20px;
+}
+
+.lg-form .link {
+  justify-self: center;
+}
+
+@media (min-width: 820px) {
+  .lg-wrap {
+    padding-top: 32px;
+  }
+  .lg-card {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    min-height: 560px;
+  }
+  .lg-scene {
+    aspect-ratio: auto;
+    display: grid;
+    align-items: end;
+  }
+  .lg-form {
+    padding: 48px 40px;
+  }
+}
+
+/* ---------- The vendors ---------- */
+
+.lg-v {
+  animation: lg-rise 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+  animation-delay: calc(var(--i) * 110ms + 200ms);
+}
+
+@keyframes lg-rise {
+  from {
+    transform: translateY(240px);
+  }
+}
+
+.lg-head {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.lg-eye {
+  transition: transform 0.12s ease-out, opacity 0.15s;
+}
+
+.lg-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lg-blink 5.2s infinite;
+  animation-delay: calc(var(--i) * 0.9s + 1.4s);
+}
+
+@keyframes lg-blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.1);
+  }
+}
+
+.lg-lid,
+.lg-mouth {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.lg-smile {
+  opacity: 1;
+}
+
+.lg-hand {
+  animation: lg-fade 0.3s both;
+  animation-delay: calc(var(--i) * 110ms + 720ms);
+  transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+
+@keyframes lg-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* watch: lean towards the form */
+[data-mood='watch'] .lg-head {
+  transform: rotate(7deg);
+}
+
+[data-mood='watch'] .lg-smile {
+  opacity: 0;
+}
+
+[data-mood='watch'] .lg-oh {
+  opacity: 1;
+}
+
+/* hide: hands over eyes, and one vendor peeks */
+[data-mood='hide'] .lg-hand {
+  transform: translate(var(--hx), var(--hy));
+}
+
+[data-mood='hide'] .lg-eye {
+  opacity: 0;
+}
+
+[data-mood='hide'] .lg-lid {
+  opacity: 1;
+}
+
+[data-mood='hide'] .lg-peek .lg-right .lg-eye {
+  opacity: 1;
+}
+
+[data-mood='hide'] .lg-peek .lg-right .lg-lid {
+  opacity: 0;
+}
+
+/* sad: frown and shake the head */
+[data-mood='sad'] .lg-smile {
+  opacity: 0;
+}
+
+[data-mood='sad'] .lg-frown {
+  opacity: 1;
+}
+
+[data-mood='sad'] .lg-head {
+  animation: lg-shake 0.55s ease-in-out;
+}
+
+@keyframes lg-shake {
+  20%,
+  60% {
+    transform: rotate(-7deg);
+  }
+  40%,
+  80% {
+    transform: rotate(7deg);
+  }
+}
+
+/* happy: hands up, big grin, a little hop */
+[data-mood='happy'] .lg-hand {
+  transform: translate(var(--ux), var(--uy));
+}
+
+[data-mood='happy'] .lg-eye,
+[data-mood='happy'] .lg-smile {
+  opacity: 0;
+}
+
+[data-mood='happy'] .lg-lid,
+[data-mood='happy'] .lg-grin {
+  opacity: 1;
+}
+
+[data-mood='happy'] .lg-body {
+  animation: lg-hop 0.42s ease-in-out 2;
+  animation-delay: calc(var(--i) * 70ms);
+}
+
+@keyframes lg-hop {
+  50% {
+    transform: translateY(-16px);
+  }
+}

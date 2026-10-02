@@ -1,0 +1,21 @@
+# Auto-scaling: keep at least 2 copies, add more (up to 5) when average CPU passes 70%.
+# Needs the metrics-server add-on: minikube addons enable metrics-server
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: localrush-web
+  namespace: localrush
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: localrush-web
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

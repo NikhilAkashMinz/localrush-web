@@ -1,0 +1,6 @@
+# A namespace keeps everything LocalRush in one place inside the cluster.
+# The "00-" prefix makes kubectl create it before the other files.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: localrush

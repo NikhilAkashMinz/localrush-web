@@ -1,0 +1,16 @@
+# One stable address inside the cluster, in front of however many copies are running.
+apiVersion: v1
+kind: Service
+metadata:
+  name: localrush-web
+  namespace: localrush
+  labels:
+    app: localrush-web
+spec:
+  type: ClusterIP
+  selector:
+    app: localrush-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,0 +1,116 @@
+# Deploy: check, package, deploy, verify. Runs on every push to main.
+#
+#   check    on GitHub's machine   type-check, tests, build
+#   package  on GitHub's machine   build the Docker image, push it to ghcr.io, scan it
+#   deploy   on your laptop        roll the image out to minikube, verify, roll back on failure
+#
+# The deploy job stays switched off until you set the repository variable
+# DEPLOY_ENABLED to "true" (guide, step 8).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time. A newer push waits for the running one to finish.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check
+    uses: ./.github/workflows/ci.yml
+
+  package:
+    name: Package
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      # Full image name with its tag, for example ghcr.io/you/localrush-web:sha-3f2a9c1...
+      image: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub's container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Names the image after this repository and tags it with the commit ID,
+      # so every image can be traced back to the exact code it was built from.
+      - name: Work out the image name and tag
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: type=sha,format=long
+
+      - name: Build and push the image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: APP_VERSION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Reports known HIGH and CRITICAL vulnerabilities in the image. It reports only:
+      # it does not block the deploy. The action is pinned to an exact commit rather
+      # than a version tag, because this action's tags were hijacked in March 2026.
+      - name: Scan the image for known vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        continue-on-error: true
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ steps.meta.outputs.tags }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+
+  deploy:
+    name: Deploy and verify
+    needs: package
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Point kubectl at minikube
+        run: kubectl config use-context minikube
+
+      - name: Apply the namespace, service and autoscaler
+        run: kubectl apply -f k8s/00-namespace.yaml -f k8s/service.yaml -f k8s/hpa.yaml
+
+      # Takes deployment.yaml, swaps in the image built above, and applies the result.
+      - name: Roll out the new image
+        run: kubectl set image -f k8s/deployment.yaml web=${{ needs.package.outputs.image }} --local -o yaml | kubectl apply -f -
+
+      # Waits until the new copies pass their health checks. If they never do, this
+      # step fails after 3 minutes while the old copies keep serving visitors.
+      - name: Wait until the new version is serving
+        run: kubectl rollout status deployment/localrush-web -n localrush --timeout=180s
+
+      # Calls the health check from inside the cluster and confirms it reports this commit.
+      - name: Verify the live site reports this commit
+        run: kubectl run smoke-${{ github.run_id }}-${{ github.run_attempt }} -n localrush --rm -i --restart=Never --image=busybox:1.36 -- sh -c "wget -qO- http://localrush-web/api/health | grep -q ${{ github.sha }}"
+
+      - name: Roll back if anything above failed
+        if: failure()
+        run: kubectl rollout undo deployment/localrush-web -n localrush

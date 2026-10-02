@@ -1,0 +1,64 @@
+# Runs the customer website and keeps it healthy.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localrush-web
+  namespace: localrush
+  labels:
+    app: localrush-web
+spec:
+  # No "replicas" here on purpose: the autoscaler in hpa.yaml owns that number.
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: localrush-web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Start a new copy before stopping an old one, so the site never goes down
+      # during a deploy. If the new copy never becomes ready, the old ones keep serving.
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: localrush-web
+    spec:
+      # Lets the cluster pull the private image from GitHub's registry (guide, step 6).
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: web
+          # The pipeline replaces this with the image it just built.
+          # "localrush-web:local" is the one you build by hand in step 4.
+          image: localrush-web:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          # Ready = may receive visitors. Live = restart it if this starts failing.
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
