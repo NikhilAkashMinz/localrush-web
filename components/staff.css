@@ -529,6 +529,152 @@
   }
 }
 
+/* ---------- Sales and earnings ---------- */
+
+.st-stat dd small {
+  display: block;
+  font-family: var(--body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mute);
+}
+
+.st-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-table th {
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--mute);
+  padding: 4px 0 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.st-table td {
+  padding: 9px 0 9px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: baseline;
+}
+
+.st-table th:first-child,
+.st-table td:first-child {
+  padding-left: 0;
+}
+
+.st-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.st-table td small {
+  display: block;
+  color: var(--mute);
+  font-size: 12.5px;
+}
+
+.st-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.st-table tfoot td {
+  font-weight: 800;
+  border-top: 1.5px solid var(--ink);
+  border-bottom: 0;
+}
+
+/* .st-done li sets a grid for its one-line rows; these rows hold an order each. */
+.st-done .st-sold > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 12px 0;
+}
+
+.st-sold header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+
+.st-sold header b {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.st-sold header span {
+  color: var(--mute);
+  font-size: 13.5px;
+}
+
+.st-sold header strong {
+  margin-left: auto;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-done .st-priced li,
+.st-priced li {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  padding: 0;
+  border: 0;
+  font-size: 14px;
+}
+
+.st-priced li > span:last-child {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-sold .st-lines {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.st-earn-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.st-earn-head h2 {
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.dp-earn {
+  display: grid;
+  gap: 10px;
+}
+
+.dp-get {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--teal-t);
+  color: var(--teal-d);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.dp-get b {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- Stock and prices ---------- */
 
 .st-filters {

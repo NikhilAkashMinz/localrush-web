@@ -72,13 +72,16 @@ export function createMemoryRepo(): Repo {
       const out = [...orders.values()].filter(
         (o) =>
           (f.customerId === undefined || o.customerId === f.customerId) &&
+          (f.customerPhone === undefined || o.customerPhone === f.customerPhone) &&
           (f.storeId === undefined || o.storeId === f.storeId) &&
           (f.partnerId === undefined || o.partnerId === f.partnerId) &&
           (f.statuses === undefined || f.statuses.includes(o.status)) &&
           (!f.unassigned || o.partnerId === null) &&
           (f.since === undefined || o.createdAt >= f.since),
       );
-      return copy(out.sort((a, b) => b.createdAt - a.createdAt));
+      const limit = f.limit ?? 300;
+      out.sort((a, b) => b.createdAt - a.createdAt);
+      return copy(limit > 0 ? out.slice(0, limit) : out);
     },
     async moveOrder(id, from, patch, entry, onlyIfUnassigned) {
       const o = orders.get(id);

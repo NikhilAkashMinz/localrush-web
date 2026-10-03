@@ -6,7 +6,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { Mark } from '@/components/Icons';
 import Vendors, { type Mood } from '@/components/Vendors';
 import { errorText } from '@/lib/api';
-import { actions } from '@/lib/state';
+import { actions, getState } from '@/lib/state';
 import './login.css';
 
 function LoginForm() {
@@ -57,10 +57,13 @@ function LoginForm() {
     setBusy(true);
     try {
       const user = await actions.login({ name: name.trim(), phone, code });
+      // A number that has ordered before brings its history back with it.
+      const past = getState().orders.length;
       setFlash('happy');
       clearTimeout(timer.current);
       timer.current = setTimeout(() => {
-        actions.toast(`Logged in as ${user.name.split(' ')[0]}`);
+        const first = user.name.split(' ')[0];
+        actions.toast(past ? `Welcome back, ${first}. Your ${past} ${past === 1 ? 'order is' : 'orders are'} in Your orders.` : `Logged in as ${first}`);
         router.push(next.startsWith('/') && !next.startsWith('//') ? next : '/');
       }, 900);
     } catch (err) {
@@ -104,8 +107,12 @@ function LoginForm() {
                   inputMode="numeric"
                   autoComplete="tel-national"
                   placeholder="10 digits"
+                  aria-describedby="phone-help"
                 />
               </label>
+              <p className="quiet small" id="phone-help">
+                Your orders are saved with this number. Log in with it again, on any device, and they are all here.
+              </p>
               {error && <p className="warn" role="alert">{error}</p>}
               <button type="submit" className="btn btn-wide">
                 Send code

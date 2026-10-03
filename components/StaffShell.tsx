@@ -18,6 +18,7 @@ import './staff.css';
 const SHOP_TABS = [
   { href: '/dashboard', label: 'Orders' },
   { href: '/dashboard/inventory', label: 'Stock and prices' },
+  { href: '/dashboard/sales', label: 'Sales' },
 ];
 
 type Account = { role: string; name: string; phone: string; storeId?: string };

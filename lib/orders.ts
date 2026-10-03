@@ -1,6 +1,18 @@
 // Orders: the shape shared by the website, the dashboards and the server.
+//
+// An order is the permanent record of a sale. It keeps everything needed to read it back
+// later without looking anything else up: who ordered (by mobile number), what was bought
+// and at what price, which shop sold it, and what the delivery partner was paid.
 
+import { product } from './data';
 import type { Line } from './select';
+
+/**
+ * One item of an order. The name and pack size are copied from the catalogue when the
+ * order is placed, so order history, shop sales and receipts read the same even if the
+ * product is renamed or removed later. Orders placed before this was added have no copy.
+ */
+export type OrderLine = Line & { name?: string; unit?: string };
 
 export type Status =
   | 'placed' // sent to the shop, waiting for it to accept
@@ -16,10 +28,11 @@ export type Order = {
   id: string;
   customerId: string;
   customerName: string;
+  /** The customer's mobile number. Order history is found by this, not by account id. */
   customerPhone: string;
   storeId: string;
   storeName: string;
-  lines: Line[];
+  lines: OrderLine[];
   subtotal: number;
   fee: number;
   total: number;
@@ -34,6 +47,14 @@ export type Order = {
   status: Status;
   partnerId: string | null;
   partnerName: string | null;
+  /** The partner's ride to the shop in km, measured when they took the delivery. */
+  pickupKm?: number;
+  /**
+   * What the delivery partner earns for this delivery, in rupees. Fixed when they take it,
+   * so the amount they accepted is the amount they get. On a job not yet taken, an estimate.
+   */
+  partnerPay?: number;
+  deliveredAt?: number;
   /** Shops that turned this order down, so it is not offered to them again. */
   rejectedBy: string[];
   note?: string;
@@ -92,3 +113,24 @@ export function minutesLeft(o: Order, now: number) {
   const elapsed = (now - o.createdAt) / 60_000;
   return Math.max(1, Math.ceil(o.etaMin - elapsed));
 }
+
+/** A line's product name: the copy saved with the order, else today's catalogue. */
+export const lineName = (l: OrderLine) => l.name ?? product(l.pid)?.name ?? l.pid;
+export const lineUnit = (l: OrderLine) => l.unit ?? product(l.pid)?.unit ?? '';
+export const itemCount = (o: Pick<Order, 'lines'>) => o.lines.reduce((a, l) => a + l.qty, 0);
+
+/** When the order was handed over. Older orders only have it in their history. */
+export const deliveredAt = (o: Order) =>
+  o.deliveredAt ?? [...o.history].reverse().find((h) => h.status === 'delivered')?.at ?? o.updatedAt;
+
+// ---------- Delivery partner pay ----------
+
+/** Every delivery pays a fixed amount plus a rate for each km ridden. */
+export const PAY_BASE = 20;
+export const PAY_PER_KM = 5;
+
+/** What a partner earns for riding `pickupKm` to the shop and then `dropKm` to the customer. */
+export const partnerPay = (pickupKm: number, dropKm: number) => Math.round(PAY_BASE + PAY_PER_KM * (pickupKm + dropKm));
+
+/** The pay for a delivery. Orders delivered before pay was recorded count only the ride to the customer. */
+export const payOf = (o: Order) => o.partnerPay ?? partnerPay(o.pickupKm ?? 0, o.distKm);

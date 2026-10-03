@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { PLACES, stockKey } from '../lib/data';
-import type { Order } from '../lib/orders';
+import { PAY_BASE, partnerPay, type Order } from '../lib/orders';
 import { SAMPLE } from '../lib/sample';
 import { handle } from '../server/api';
 import { clock } from '../server/clock';
@@ -71,9 +71,9 @@ const order = (cart: Record<string, number>, as: string, place = PES) =>
 
 const stockOf = async (storeId: string, pid: string) => (await repo.dataset()).stock[stockKey(storeId, pid)]?.stock;
 
-async function packedOrder() {
+async function packedOrder(cart: Record<string, number> = { chips: 1 }) {
   const customer = await loginAs('9876543210');
-  const placed = (await order({ chips: 1 }, customer)).data.orders[0];
+  const placed = (await order(cart, customer)).data.orders[0];
   const shop = await ownerOf(placed.storeId);
   assert.equal((await call('POST', `orders/${placed.id}/accept`, { as: shop })).status, 200);
   assert.equal((await call('POST', `orders/${placed.id}/pack`, { as: shop })).status, 200);
@@ -309,6 +309,111 @@ test('delivery needs the customer\'s door code', async () => {
 
   const final = await call('GET', `orders/${placed.id}`, { as: customer });
   assert.deepEqual(final.data.order.history.map((h: { status: string }) => h.status), ['placed', 'accepted', 'packed', 'assigned', 'picked', 'delivered']);
+});
+
+test('order history follows the mobile number, with what was bought and at what price', async () => {
+  const first = await loginAs('9876543210', 'Asha Rao');
+  const placed: Order[] = (await order({ chips: 2, milk: 1 }, first)).data.orders;
+  for (const o of placed) {
+    for (const l of o.lines) {
+      assert.equal(l.name, SAMPLE.products.find((p) => p.id === l.pid)!.name, 'the product name is saved with the order');
+      assert.ok(l.price > 0);
+    }
+  }
+
+  // Logging in again later with the same number, even typing another name, brings the same account and history back.
+  const again = await loginAs('9876543210', 'Someone Typing Another Name');
+  assert.equal((await call('GET', 'me', { as: again })).data.user.name, 'Asha Rao');
+  const history: Order[] = (await call('GET', 'orders', { as: again })).data.orders;
+  assert.deepEqual(history.map((o) => o.id).sort(), placed.map((o) => o.id).sort());
+
+  // History is found by number, not by account id: an order kept under an older account with
+  // this number still shows up, and nobody with another number ever sees it.
+  await repo.insertOrder({ ...placed[0], id: 'LROLD1', customerId: 'u-an-older-account', createdAt: placed[0].createdAt - 86_400_000 });
+  const withOld: Order[] = (await call('GET', 'orders', { as: again })).data.orders;
+  assert.equal(withOld.length, placed.length + 1);
+  assert.equal(withOld[withOld.length - 1].id, 'LROLD1', 'oldest last');
+  assert.equal((await call('GET', 'orders/LROLD1', { as: again })).status, 200);
+  const stranger = await loginAs('9123456780', 'Someone Else');
+  assert.equal((await call('GET', 'orders', { as: stranger })).data.orders.length, 0);
+  assert.equal((await call('GET', 'orders/LROLD1', { as: stranger })).status, 404);
+});
+
+/** An order taken all the way to the customer's door by partner `index`. */
+async function deliveredOrder(cart: Record<string, number>, index = 0) {
+  const { customer, shop, placed } = await packedOrder(cart);
+  const partner = await onlinePartner(index);
+  const claimed: Order = (await call('POST', `orders/${placed.id}/claim`, { as: partner })).data.order;
+  assert.equal((await call('POST', `orders/${placed.id}/pickup`, { as: partner })).status, 200);
+  assert.equal((await call('POST', `orders/${placed.id}/deliver`, { as: partner, body: { otp: placed.otp } })).status, 200);
+  return { customer, shop, partner, placed, claimed };
+}
+
+test('a shop sees what it sold, how many and at what price', async () => {
+  const { customer, shop, placed } = await deliveredOrder({ chips: 2 });
+  const price = placed.lines.find((l) => l.pid === 'chips')!.price;
+
+  const sales = await call('GET', 'shop/sales?period=today', { as: shop });
+  assert.equal(sales.status, 200);
+  assert.deepEqual(sales.data.totals.today, { orders: 1, items: 2, revenue: placed.subtotal });
+  assert.deepEqual(sales.data.totals.all, sales.data.totals.today);
+  const chips = sales.data.products.find((p: { pid: string }) => p.pid === 'chips');
+  assert.equal(chips.qty, 2);
+  assert.equal(chips.revenue, 2 * price);
+  assert.equal(chips.name, SAMPLE.products.find((p) => p.id === 'chips')!.name);
+  assert.equal(sales.data.orders[0].id, placed.id);
+  assert.equal(sales.data.orders[0].otp, undefined, 'the shop never sees the door code');
+
+  // An order still on its way is not a sale yet, and another shop sees none of this one's sales.
+  await packedOrder({ chips: 1 });
+  assert.equal((await call('GET', 'shop/sales', { as: shop })).data.totals.all.orders, 1);
+  const other = SAMPLE.stores.find((s) => s.id !== placed.storeId)!;
+  assert.equal((await call('GET', 'shop/sales', { as: await ownerOf(other.id) })).data.totals.all.orders, 0);
+
+  // The next day, the sale has moved from "today" to "last 7 days".
+  clock.now = () => new Date('2026-01-06T11:00:00+05:30').getTime();
+  const tomorrow = (await call('GET', 'shop/sales?period=today', { as: shop })).data;
+  assert.equal(tomorrow.totals.today.orders, 0);
+  assert.equal(tomorrow.totals.week.revenue, placed.subtotal);
+  assert.equal(tomorrow.products.length, 0);
+
+  assert.equal((await call('GET', 'shop/sales', { as: customer })).status, 403);
+  assert.equal((await call('GET', 'shop/sales', { as: customer, seat: 'shop' })).status, 401);
+});
+
+test('a partner sees what each delivery pays, fixed when they take it', async () => {
+  const { customer, shop, placed } = await packedOrder();
+  const partner = await onlinePartner(0);
+  const job = (await call('GET', 'orders', { as: partner })).data.available[0];
+  assert.equal(job.partnerPay, partnerPay(job.pickupKm, job.distKm));
+  assert.ok(job.partnerPay >= PAY_BASE);
+
+  const claimed: Order = (await call('POST', `orders/${placed.id}/claim`, { as: partner })).data.order;
+  assert.equal(claimed.partnerPay, job.partnerPay);
+  const during = (await call('GET', 'partner/earnings', { as: partner })).data;
+  assert.equal(during.pending, job.partnerPay, 'earned once it is delivered');
+  assert.equal(during.totals.today.earned, 0);
+
+  // Moving somewhere else after taking the job does not change what it pays.
+  await call('PUT', 'partner', { as: partner, body: { place: WHITEFIELD } });
+  await call('POST', `orders/${placed.id}/pickup`, { as: partner });
+  await call('POST', `orders/${placed.id}/deliver`, { as: partner, body: { otp: placed.otp } });
+
+  const done = (await call('GET', 'partner/earnings?period=today', { as: partner })).data;
+  assert.equal(done.pending, 0);
+  assert.deepEqual(done.totals.today, {
+    deliveries: 1,
+    earned: job.partnerPay,
+    km: Math.round((job.pickupKm + job.distKm) * 10) / 10,
+    cash: placed.total,
+  });
+  assert.equal(done.orders[0].partnerPay, job.partnerPay);
+
+  // Customers and shops never see a partner's pay, and another partner has earned nothing.
+  assert.equal((await call('GET', `orders/${placed.id}`, { as: customer })).data.order.partnerPay, undefined);
+  assert.equal((await call('GET', 'orders', { as: shop })).data.orders[0].partnerPay, undefined);
+  assert.equal((await call('GET', 'partner/earnings', { as: await onlinePartner(1) })).data.totals.all.earned, 0);
+  assert.equal((await call('GET', 'partner/earnings', { as: shop })).status, 403);
 });
 
 test('a rejected order moves to the next-best shop, with stock put back', async () => {

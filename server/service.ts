@@ -2,11 +2,12 @@
 // who may do what, how an order moves from step to step, and how stock stays correct.
 
 import { randomBytes } from 'node:crypto';
-import { CATEGORIES, setDataset, type Dataset, type PackShape, type Place, type Product } from '../lib/data';
+import { CATEGORIES, product, setDataset, type Dataset, type PackShape, type Place, type Product } from '../lib/data';
 import { roadKm } from '../lib/geo';
 import { shopsNear } from '../lib/nearby';
-import type { Order, Status } from '../lib/orders';
-import { planOrder, type Mode } from '../lib/select';
+import { partnerPay, type Order, type OrderLine, type Status } from '../lib/orders';
+import { earningsReport, isPeriod, salesReport, type EarningsReport, type SalesReport } from '../lib/reports';
+import { planOrder, type Line, type Mode } from '../lib/select';
 import { clock } from './clock';
 import type { Address, Repo, User } from './types';
 
@@ -23,6 +24,8 @@ export class ApiError extends Error {
 const id = (prefix: string, bytes = 4) => prefix + randomBytes(bytes).toString('hex').toUpperCase();
 const isInt = (v: unknown, min: number, max: number): v is number => Number.isInteger(v) && (v as number) >= min && (v as number) <= max;
 const isText = (v: unknown, min: number, max: number): v is string => typeof v === 'string' && v.trim().length >= min && v.trim().length <= max;
+/** Rounded to one decimal place, for distances. */
+const tenth = (n: number) => Math.round(n * 10) / 10;
 
 function isPlace(v: unknown): v is Place {
   const p = v as Place;
@@ -101,17 +104,32 @@ export async function deleteAddress(repo: Repo, user: User, addressId: string): 
 
 // ---------- Orders ----------
 
-/** What each kind of user is allowed to see of an order. Only the customer gets the door code. */
+/**
+ * What each kind of user is allowed to see of an order. Only the customer gets the door code,
+ * and only the partner sees what the delivery pays.
+ */
 export function viewOrder(o: Order, user: User): Order {
-  if (user.role === 'customer') return o;
-  const { otp, ...rest } = o;
-  void otp;
-  if (user.role === 'partner' && o.partnerId !== user.id) return { ...rest, customerPhone: '' };
-  return rest;
+  const { otp, partnerPay: pay, pickupKm, ...rest } = o;
+  if (user.role === 'customer') return { ...rest, otp };
+  if (user.role === 'shop') return rest;
+  const seen = { ...rest, partnerPay: pay, pickupKm };
+  // A job nobody has taken yet does not show the customer's number.
+  return o.partnerId === user.id ? seen : { ...seen, customerPhone: '' };
 }
 
+/** A customer's orders are the ones placed with their mobile number. */
+const ownsOrder = (user: User, o: Order) => user.role === 'customer' && (o.customerPhone === user.phone || o.customerId === user.id);
+
+/** Copy each product's name and pack size into the order, so it reads the same later. */
+const named = (lines: Line[]): OrderLine[] =>
+  lines.map((l) => {
+    const p = product(l.pid);
+    return p ? { ...l, name: p.name, unit: p.unit } : { ...l };
+  });
+
+/** Live-update channels. A customer's follows their mobile number, like their order history. */
 const channelsFor = (o: Order, extra: string[] = []) => [
-  'user:' + o.customerId,
+  'phone:' + o.customerPhone,
   'store:' + o.storeId,
   ...(o.partnerId ? ['partner:' + o.partnerId] : []),
   ...extra,
@@ -168,7 +186,7 @@ export async function placeOrder(repo: Repo, user: User, input: PlaceInput) {
       customerPhone: user.phone,
       storeId: s.near.store.id,
       storeName: s.near.store.name,
-      lines: s.lines,
+      lines: named(s.lines),
       subtotal: s.subtotal,
       fee: s.fee,
       total: s.subtotal + s.fee,
@@ -201,7 +219,12 @@ export async function placeOrder(repo: Repo, user: User, input: PlaceInput) {
 }
 
 export async function listOrders(repo: Repo, user: User) {
-  if (user.role === 'customer') return { orders: await repo.orders({ customerId: user.id }) };
+  if (user.role === 'customer') {
+    const orders = await repo.orders({ customerPhone: user.phone });
+    // Checked again here so a customer can only ever be sent their own orders, even by a
+    // database layer that missed the filter (an old one kept alive by a dev-server reload).
+    return { orders: orders.filter((o) => ownsOrder(user, o)).map((o) => viewOrder(o, user)) };
+  }
   if (user.role === 'shop') {
     const orders = await repo.orders({ storeId: user.storeId });
     return { orders: orders.map((o) => viewOrder(o, user)) };
@@ -215,7 +238,9 @@ export async function listOrders(repo: Repo, user: User) {
     available = ready
       .map((o) => {
         const s = data.stores.find((x) => x.id === o.storeId);
-        return { ...viewOrder(o, user), pickupKm: s ? roadKm(here.lat, here.lng, s.lat, s.lng) : Infinity };
+        const pickupKm = s ? tenth(roadKm(here.lat, here.lng, s.lat, s.lng)) : Infinity;
+        // What this job would pay from where the partner is now. It is fixed when they take it.
+        return { ...viewOrder(o, user), pickupKm, partnerPay: partnerPay(pickupKm, o.distKm) };
       })
       .filter((o) => o.pickupKm <= PARTNER_RANGE_KM)
       .sort((a, b) => a.pickupKm - b.pickupKm);
@@ -227,7 +252,7 @@ export async function getOrder(repo: Repo, user: User, orderId: string): Promise
   const o = await repo.orderById(orderId);
   const allowed =
     o &&
-    ((user.role === 'customer' && o.customerId === user.id) ||
+    (ownsOrder(user, o) ||
       (user.role === 'shop' && o.storeId === user.storeId) ||
       (user.role === 'partner' && (o.partnerId === user.id || (o.status === 'packed' && o.partnerId === null))));
   if (!o || !allowed) throw new ApiError(404, 'We could not find that order.');
@@ -274,7 +299,7 @@ async function reroute(repo: Repo, o: Order, at: number): Promise<Order | null> 
       status: 'placed',
       storeId: best.near.store.id,
       storeName: best.near.store.name,
-      lines: best.lines,
+      lines: named(best.lines),
       subtotal: best.subtotal,
       fee: best.fee,
       total: best.subtotal + best.fee,
@@ -322,7 +347,10 @@ export async function act(repo: Repo, user: User, orderId: string, action: strin
       if (!user.online) throw new ApiError(409, 'Go online before accepting a delivery.');
       const current = await repo.orders({ partnerId: user.id, statuses: ['assigned', 'picked'] });
       if (current.length > 0) throw new ApiError(409, 'Finish your current delivery first.', 'busy');
-      moved = await step(['packed'], 'assigned', { partnerId: user.id, partnerName: user.name }, true);
+      // Fix the pay now, from where the partner is: the amount they took the job for is what they get.
+      const shop = (await catalogue(repo)).stores.find((s) => s.id === o.storeId);
+      const pickupKm = shop && user.place ? tenth(roadKm(user.place.lat, user.place.lng, shop.lat, shop.lng)) : 0;
+      moved = await step(['packed'], 'assigned', { partnerId: user.id, partnerName: user.name, pickupKm, partnerPay: partnerPay(pickupKm, o.distKm) }, true);
       if (!moved) throw new ApiError(409, 'Another partner has already taken this delivery.', 'taken');
       extra.push('partners');
       break;
@@ -336,10 +364,10 @@ export async function act(repo: Repo, user: User, orderId: string, action: strin
       if (o.status === 'picked' && String(body.otp ?? '') !== o.otp) {
         throw new ApiError(400, 'That code does not match. Ask the customer to read it out again.', 'otp');
       }
-      moved = await step(['picked'], 'delivered');
+      moved = await step(['picked'], 'delivered', { deliveredAt: at });
       break;
     case 'cancel':
-      if (user.role !== 'customer' || o.customerId !== user.id) throw forbidden;
+      if (!ownsOrder(user, o)) throw forbidden;
       moved = await step(['placed'], 'cancelled', { note: 'You cancelled this order.' });
       if (moved) {
         await returnStock(repo, o);
@@ -417,6 +445,14 @@ export async function setPaused(repo: Repo, user: User, paused: unknown) {
   return { paused: paused === true };
 }
 
+/** What the shop has sold, with prices, from every order it has delivered. */
+export async function shopSales(repo: Repo, user: User, period: unknown): Promise<SalesReport> {
+  const storeId = requireShop(user);
+  const sold = await repo.orders({ storeId, statuses: ['delivered'], limit: 0 });
+  const report = salesReport(sold, isPeriod(period) ? period : 'today', clock.now());
+  return { ...report, orders: report.orders.map((o) => viewOrder(o, user)) };
+}
+
 // ---------- Delivery partner ----------
 
 export async function setPartner(repo: Repo, user: User, input: { online?: unknown; place?: unknown }): Promise<User> {
@@ -430,4 +466,12 @@ export async function setPartner(repo: Repo, user: User, input: { online?: unkno
   await repo.putUser(next);
   await repo.bump(['partner:' + user.id]);
   return next;
+}
+
+/** What the partner has earned, from every delivery they have completed. */
+export async function partnerEarnings(repo: Repo, user: User, period: unknown): Promise<EarningsReport> {
+  if (user.role !== 'partner') throw new ApiError(403, 'Only delivery partners can do that.');
+  const mine = await repo.orders({ partnerId: user.id, statuses: ['assigned', 'picked', 'delivered'], limit: 0 });
+  const report = earningsReport(mine, isPeriod(period) ? period : 'today', clock.now());
+  return { ...report, orders: report.orders.map((o) => viewOrder(o, user)) };
 }

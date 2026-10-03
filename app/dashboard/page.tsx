@@ -11,7 +11,8 @@ import { product, store } from '@/lib/data';
 import { hourLabel, rupee } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
 import { isOpen, istHour } from '@/lib/nearby';
-import type { Order, Status } from '@/lib/orders';
+import { deliveredAt, lineName, lineUnit, type Order, type Status } from '@/lib/orders';
+import { startOfDayIST } from '@/lib/reports';
 import { actions, useStore } from '@/lib/state';
 
 const COLUMNS: { key: string; title: string; hint: string; statuses: Status[] }[] = [
@@ -31,12 +32,6 @@ function elapsed(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 3600) return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
-}
-
-/** The start of today in India, as a timestamp, so "today" means the shop's day. */
-function startOfDayIST(now: number) {
-  const offset = 5.5 * 3600_000;
-  return Math.floor((now + offset) / 86_400_000) * 86_400_000 - offset;
 }
 
 /** A short two-note chime for a new order. Browsers only allow sound after the page has been clicked once. */
@@ -99,8 +94,8 @@ function Card({ o, now, fresh }: { o: Order; now: number; fresh: boolean }) {
             <li key={l.pid}>
               <span className="st-qty">{l.qty} ×</span>
               <span>
-                {p ? `${p.emoji} ${p.name}` : l.pid}
-                {p && <small> {p.unit}</small>}
+                {p?.emoji} {lineName(l)}
+                <small> {lineUnit(l)}</small>
               </span>
             </li>
           );
@@ -185,9 +180,10 @@ export default function DashboardPage() {
   const dayStart = startOfDayIST(now);
   const today = orders.filter((o) => o.createdAt >= dayStart);
   const kept = today.filter((o) => o.status !== 'cancelled' && o.status !== 'rejected');
-  const delivered = today.filter((o) => o.status === 'delivered');
+  // Delivered today, counted by when it was handed over: the same rule as the Sales page.
+  const delivered = orders.filter((o) => o.status === 'delivered' && deliveredAt(o) >= dayStart);
   const finished = today.filter((o) => DONE.includes(o.status)).sort((a, b) => b.updatedAt - a.updatedAt);
-  const sales = kept.reduce((a, o) => a + o.subtotal, 0);
+  const sales = delivered.reduce((a, o) => a + o.subtotal, 0);
   const openNow = isOpen({ ...shop, paused: false }, istHour(new Date(now)));
 
   const togglePause = async () => {
@@ -245,7 +241,7 @@ export default function DashboardPage() {
           <dd>{delivered.length}</dd>
         </div>
         <div className="st-stat">
-          <dt>Sales today</dt>
+          <dt>Sold today</dt>
           <dd>{rupee(sales)}</dd>
         </div>
       </dl>
@@ -291,6 +287,13 @@ export default function DashboardPage() {
             ))}
           </ul>
         )}
+        <p className="quiet small">
+          Everything you have sold, item by item and at what price, is under{' '}
+          <Link href="/dashboard/sales" className="link">
+            Sales
+          </Link>
+          .
+        </p>
       </section>
 
       <p className="quiet small">

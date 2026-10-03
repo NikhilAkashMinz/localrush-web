@@ -4,19 +4,15 @@
 // at shops nearby, take one, collect it, and hand it over with the customer's door code.
 
 import { useState } from 'react';
+import PeriodPicker from '@/components/PeriodPicker';
 import { errorText } from '@/lib/api';
 import { PLACES, product, store, type Place } from '@/lib/data';
-import { km, rupee } from '@/lib/format';
-import { useNow } from '@/lib/hooks';
-import type { Order } from '@/lib/orders';
+import { km, rupee, when } from '@/lib/format';
+import { useNow, useReport } from '@/lib/hooks';
+import { deliveredAt, itemCount, lineName, lineUnit, PAY_BASE, PAY_PER_KM, payOf, type Order } from '@/lib/orders';
+import { PERIODS, type EarningsReport, type Period } from '@/lib/reports';
 import { actions, useStore, type Job } from '@/lib/state';
 
-function startOfDayIST(now: number) {
-  const offset = 5.5 * 3600_000;
-  return Math.floor((now + offset) / 86_400_000) * 86_400_000 - offset;
-}
-
-const itemCount = (o: Order) => o.lines.reduce((a, l) => a + l.qty, 0);
 const minutesAgo = (ts: number, now: number) => {
   const m = Math.max(0, Math.floor((now - ts) / 60_000));
   return m === 0 ? 'just now' : `${m} min ago`;
@@ -31,8 +27,8 @@ function Items({ o }: { o: Order }) {
           <li key={l.pid}>
             <span className="st-qty">{l.qty} ×</span>
             <span>
-              {p ? `${p.emoji} ${p.name}` : l.pid}
-              {p && <small> {p.unit}</small>}
+              {p?.emoji} {lineName(l)}
+              <small> {lineUnit(l)}</small>
             </span>
           </li>
         );
@@ -102,6 +98,10 @@ function Active({ o }: { o: Order }) {
         ) : (
           <>Already paid online. Nothing to collect.</>
         )}
+      </p>
+      <p className="dp-get">
+        <span>You get this once you hand it over</span>
+        <b>{rupee(payOf(o))}</b>
       </p>
 
       {error && (
@@ -196,10 +196,100 @@ function JobCard({ job, now, blocked }: { job: Job; now: number; blocked: boolea
       <p className="st-meta">
         {shop?.area} to {job.address} · {job.payment === 'cod' ? `collect ${rupee(job.total)}` : 'paid online'}
       </p>
+      <p className="dp-get">
+        <span>You earn for this delivery</span>
+        <b>{rupee(payOf(job))}</b>
+      </p>
       <button type="button" className="btn btn-wide" disabled={busy || blocked} onClick={claim}>
         {busy ? 'Taking it…' : 'Take this delivery'}
       </button>
     </li>
+  );
+}
+
+const deliveries = (n: number) => `${n} ${n === 1 ? 'delivery' : 'deliveries'}`;
+
+/** What the partner has earned, worked out on the server from their completed deliveries. */
+function Earnings() {
+  const [period, setPeriod] = useState<Period>('today');
+  const { report, error } = useReport<EarningsReport>('partner/earnings', period);
+  const label = PERIODS.find((p) => p.key === period)!.label.toLowerCase();
+  const current = report && report.period === period ? report : null;
+  const totals = report?.totals;
+  const chosen = current?.totals[period];
+
+  return (
+    <section className="dp-earn" aria-label="Your earnings">
+      <div className="st-earn-head">
+        <h2>Your earnings</h2>
+        <PeriodPicker value={period} onChange={setPeriod} label="Earnings period" />
+      </div>
+      {error && (
+        <p className="warn" role="alert">
+          {error}
+        </p>
+      )}
+
+      <dl className="st-stats">
+        {PERIODS.map((p) => (
+          <div className="st-stat" key={p.key}>
+            <dt>{p.label}</dt>
+            <dd>
+              {totals ? rupee(totals[p.key].earned) : '…'}
+              {totals && <small>{deliveries(totals[p.key].deliveries)}</small>}
+            </dd>
+          </div>
+        ))}
+        <div className={report?.pending ? 'st-stat st-stat-hot' : 'st-stat'}>
+          <dt>On the way</dt>
+          <dd>
+            {report ? rupee(report.pending) : '…'}
+            {report && <small>{report.pending ? 'yours once delivered' : 'no delivery under way'}</small>}
+          </dd>
+        </div>
+      </dl>
+
+      {chosen && chosen.cash > 0 && (
+        <p className="dp-pay dp-pay-cash">
+          Cash collected at the door, {label}: <b>{rupee(chosen.cash)}</b>. Hand it over to LocalRush: it is the
+          customers&apos; payment for their orders, not part of your earnings.
+        </p>
+      )}
+
+      <div className="st-done">
+        <h2>Deliveries, {label}</h2>
+        {!current ? (
+          <p className="quiet">Adding up your earnings…</p>
+        ) : current.orders.length === 0 ? (
+          <p className="quiet">
+            {period === 'all' ? 'You have not completed a delivery yet.' : `No deliveries completed ${period === 'today' ? 'today' : 'in the last 7 days'} yet.`}{' '}
+            Each one you complete is listed here with what it paid.
+          </p>
+        ) : (
+          <ul>
+            {current.orders.map((o) => (
+              <li key={o.id}>
+                <b>{o.id}</b>
+                <span>
+                  {o.storeName} · {when(deliveredAt(o))}
+                </span>
+                <span>{km((o.pickupKm ?? 0) + o.distKm)}</span>
+                <em className="ok">{rupee(payOf(o))}</em>
+              </li>
+            ))}
+          </ul>
+        )}
+        {chosen && chosen.deliveries > 0 && (
+          <p className="quiet small">
+            {deliveries(chosen.deliveries)} · {km(chosen.km)} ridden · <b>{rupee(chosen.earned)}</b> earned
+          </p>
+        )}
+        <p className="quiet small">
+          Each delivery pays {rupee(PAY_BASE)} plus {rupee(PAY_PER_KM)} for every km you ride, to the shop and on to the
+          customer. The amount is fixed when you take the delivery.
+        </p>
+      </div>
+    </section>
   );
 }
 
@@ -215,7 +305,6 @@ export default function PartnerPage() {
   if (!user) return null;
 
   const active = orders.filter((o) => o.status === 'assigned' || o.status === 'picked');
-  const doneToday = orders.filter((o) => o.status === 'delivered' && o.updatedAt >= startOfDayIST(now));
   const online = user.online === true;
   const listed = PLACES.some((p) => p.label === user.place?.label);
 
@@ -325,23 +414,7 @@ export default function PartnerPage() {
         </section>
       )}
 
-      <section className="st-done">
-        <h2>Delivered today</h2>
-        {doneToday.length === 0 ? (
-          <p className="quiet">Your finished deliveries from today are listed here.</p>
-        ) : (
-          <ul>
-            {doneToday.map((o) => (
-              <li key={o.id}>
-                <b>{o.id}</b>
-                <span>{o.storeName}</span>
-                <span>{km(o.distKm)}</span>
-                <em className="ok">Delivered</em>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <Earnings />
     </div>
   );
 }

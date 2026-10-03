@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { api, errorText } from './api';
 import { availability, istHour, shopsNear } from './nearby';
+import type { Period } from './reports';
 import { planOrder } from './select';
 import { useStore } from './state';
 
@@ -35,6 +37,33 @@ export function usePlan() {
   const mode = useStore((s) => s.mode);
   const near = useNear();
   return useMemo(() => planOrder(cart, near, mode), [cart, near, mode]);
+}
+
+/**
+ * A report from the server (a shop's sales, a partner's earnings) for one period. It is asked
+ * for again whenever this user's orders change, so it stays live like the rest of the page.
+ */
+export function useReport<T extends { period: Period }>(path: string, period: Period) {
+  const version = useStore((s) => s.orders.map((o) => o.id + o.status).join());
+  const [report, setReport] = useState<T | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let dead = false;
+    api<T>('GET', `${path}?period=${period}`).then(
+      (r) => {
+        if (dead) return;
+        setReport(r);
+        setError('');
+      },
+      (e) => {
+        if (!dead) setError(errorText(e));
+      },
+    );
+    return () => {
+      dead = true;
+    };
+  }, [path, period, version]);
+  return { report, error };
 }
 
 export function useReducedMotion() {

@@ -10,7 +10,7 @@ import { errorText } from '@/lib/api';
 import { CATEGORIES, KIND_COLOR, product, store, type StoreKind } from '@/lib/data';
 import { km, rupee, when } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
-import { isOver, minutesLeft, riderPosition, stageIndex, STAGES } from '@/lib/orders';
+import { isOver, lineName, minutesLeft, riderPosition, stageIndex, STAGES } from '@/lib/orders';
 import { actions, useStore } from '@/lib/state';
 
 const KIND_EMOJI: Record<StoreKind, string> = {
@@ -216,7 +216,7 @@ export default function TrackPage() {
                   <li key={l.pid}>
                     <ProductArt p={p} size="sm" />
                     <span>
-                      {l.qty} × {p.name}
+                      {l.qty} × {lineName(l)}
                     </span>
                     <b>{rupee(l.price * l.qty)}</b>
                   </li>

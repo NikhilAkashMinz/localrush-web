@@ -71,24 +71,32 @@ export default function AccountPage() {
         )}
       </section>
 
-      {user.role !== 'customer' && (
-        <section className="box">
-          <h2>{user.role === 'shop' ? 'Your shop' : 'Deliveries'}</h2>
-          <p className="box-row">
-            <span>{user.role === 'shop' ? 'Orders and stock are on your shop dashboard.' : 'Jobs near you are on your delivery screen.'}</span>
-            <Link href={user.role === 'shop' ? '/dashboard' : '/partner'} className="link">
-              Open it
-            </Link>
-          </p>
-        </section>
-      )}
-
       <section className="box">
         <h2>Orders</h2>
         <p className="box-row">
           <span>{orders.length === 0 ? 'No orders yet' : `${orders.length} ${orders.length === 1 ? 'order' : 'orders'} so far`}</span>
           <Link href="/orders" className="link">
             See your orders
+          </Link>
+        </p>
+        <p className="quiet small">Your orders are saved with your mobile number. Log in with {user.phone} on any device to see them.</p>
+      </section>
+
+      <section className="box">
+        <h2>Delivery partner and shop screens</h2>
+        <p className="quiet small">
+          Each has its own login. Opening one does not log you out here, so you can switch back and forth.
+        </p>
+        <p className="box-row">
+          <span>Take deliveries and see your earnings</span>
+          <Link href="/partner" className="link">
+            Delivery partner screen
+          </Link>
+        </p>
+        <p className="box-row">
+          <span>Orders, stock and sales for a shop</span>
+          <Link href="/dashboard" className="link">
+            Shop dashboard
           </Link>
         </p>
       </section>

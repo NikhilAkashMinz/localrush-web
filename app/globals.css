@@ -2185,6 +2185,11 @@ h3 {
   gap: 12px;
 }
 
+.orders-sum {
+  margin: -6px 0 14px;
+  font-size: 14.5px;
+}
+
 .order {
   background: var(--card);
   border-radius: 16px;

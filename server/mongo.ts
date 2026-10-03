@@ -75,11 +75,20 @@ export async function createMongoRepo(uri: string, options: { reset?: boolean } 
   const orders: Collection<WithId<Order>> = db.collection('orders');
   const counters: Collection<CounterDoc> = db.collection('counters');
 
+  // One index per question the site asks. Creating an index that exists is a no-op, so a
+  // database from an older version simply gains the new ones on the next start.
   await Promise.all([
+    // One account per mobile number: logging in again with it finds the same account.
     users.createIndex({ phone: 1 }, { unique: true }),
     orders.createIndex({ customerId: 1, createdAt: -1 }),
+    // A customer's order history, found by mobile number.
+    orders.createIndex({ customerPhone: 1, createdAt: -1 }),
+    // A shop's order board, and its sales (its delivered orders).
     orders.createIndex({ storeId: 1, createdAt: -1 }),
+    orders.createIndex({ storeId: 1, status: 1, createdAt: -1 }),
+    // Packed orders waiting for a partner, and a partner's deliveries and earnings.
     orders.createIndex({ status: 1, partnerId: 1 }),
+    orders.createIndex({ partnerId: 1, status: 1, createdAt: -1 }),
     inventory.createIndex({ storeId: 1 }),
   ]);
   await seedIfEmpty(db);
@@ -150,12 +159,14 @@ export async function createMongoRepo(uri: string, options: { reset?: boolean } 
     async orders(f: OrderFilter) {
       const query: Record<string, unknown> = {};
       if (f.customerId !== undefined) query.customerId = f.customerId;
+      if (f.customerPhone !== undefined) query.customerPhone = f.customerPhone;
       if (f.storeId !== undefined) query.storeId = f.storeId;
       if (f.partnerId !== undefined) query.partnerId = f.partnerId;
       if (f.statuses !== undefined) query.status = { $in: f.statuses };
       if (f.unassigned) query.partnerId = null;
       if (f.since !== undefined) query.createdAt = { $gte: f.since };
-      const docs = await orders.find(query).sort({ createdAt: -1 }).limit(300).toArray();
+      // limit(0) is MongoDB for "no limit".
+      const docs = await orders.find(query).sort({ createdAt: -1 }).limit(f.limit ?? 300).toArray();
       return docs.map((d) => strip<Order>(d)!);
     },
     async moveOrder(id, from, patch, entry, onlyIfUnassigned) {

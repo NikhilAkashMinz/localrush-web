@@ -3,9 +3,12 @@
 A hyperlocal quick-commerce platform that delivers from existing neighbourhood shops within
 5 km. One Next.js app holds all three sides of it, plus the server:
 
-- **Customer website**: browse shops near you, order, and track the delivery live.
-- **Shop dashboard** (`/dashboard`): orders arrive by themselves; accept, pack, hand over; manage stock and prices.
-- **Delivery partner screen** (`/partner`): go online, take a packed order, deliver it with the customer's door code.
+- **Customer website**: browse shops near you, order, and track the delivery live. Your order
+  history is kept with your mobile number.
+- **Shop dashboard** (`/dashboard`): orders arrive by themselves; accept, pack, hand over; manage
+  stock and prices; see everything the shop has sold, with prices.
+- **Delivery partner screen** (`/partner`): go online, take a packed order, deliver it with the
+  customer's door code, and see what each delivery pays and what you have earned.
 - **Backend** (`/api/...`): accounts, the catalogue, stock, orders and live updates, stored in MongoDB.
 
 Built with Next.js (App Router), React, TypeScript, three.js and MongoDB.
@@ -74,16 +77,20 @@ in or out of one never changes the other two. Open three tabs:
 | Delivery partner | `localhost:3000/partner` | Choose a partner from the list (Ravi K. is `9100000001`) |
 
 Any 4-digit code logs in (no SMS is sent yet). Each login only accepts its own kind of
-account: a shop owner's number is refused on the customer login, and so on. Then:
+account: a shop owner's number is refused on the customer login, and so on. You never need to
+log out of one to use another: a logged-in customer can open both other screens from
+**Account** (click your name at the top), and from the links at the bottom of every page. Then:
 
 1. **Partner**: switch to Online.
 2. **Customer**: keep the location on PES University, add milk and bread, check out.
    Checkout shows which shop was picked. The tracking page shows the order's 4-digit
    delivery code straight away.
 3. **Shop owner**: the order appears under New with a chime. Press Accept, then Packed and ready.
-4. **Partner**: the job appears. Take it, press "I have picked it up", then enter the
-   delivery code for that order. Each order has its own code.
+4. **Partner**: the job appears with what it pays. Take it, press "I have picked it up", then
+   enter the delivery code for that order. Each order has its own code. Your earnings update.
 5. **Customer**: the tracking page moved through every step without a refresh.
+6. **Shop owner**: open **Sales** to see the items sold, how many and at what price.
+7. **Customer**: log out and log in again with the same number. Your orders are all still there.
 
 An order appears only on the dashboard of the shop it was sent to. Milk and bread near PES
 University go to Sri Lakshmi; a notebook goes to Campus Xerox & Stationery, and so on. If
@@ -122,6 +129,8 @@ placed ──accept──▶ accepted ──pack──▶ packed ──claim─�
 
 - Each step is one conditional database update ("change it only if it is still in the step I
   expect"), so two people pressing at once cannot both win.
+- The partner's pay is fixed at **claim**: ₹20 per delivery plus ₹5 per km, counting the ride
+  to the shop and on to the customer. Moving after taking the job does not change it.
 - Stock is taken when the order is placed and given back on cancel or reject, also with a
   conditional update, so the last item cannot be sold twice.
 - The door code is sent only to the customer. The server checks it on delivery.
@@ -155,7 +164,9 @@ reads only that cookie. A request without the header is judged by the page it ca
 | `PUT /shop/stock` | shop owner | `{ pid, price, stock }` |
 | `POST /shop/products` | shop owner | Add a new product |
 | `PUT /shop/paused` | shop owner | `{ paused }` |
+| `GET /shop/sales?period=` | shop owner | What the shop sold: totals, each product with quantity and price, and the orders. `period` is `today`, `week` or `all` |
 | `PUT /partner` | partner | `{ online, place }` |
+| `GET /partner/earnings?period=` | partner | What the partner earned: totals, pay waiting on the current delivery, cash collected, and the deliveries |
 | `GET /live` | everyone | Server-sent events |
 | `GET /health` | everyone | Version, storage mode, database state |
 
@@ -163,7 +174,7 @@ reads only that cookie. A request without the header is judged by the page it ca
 
 ```
 app/                 Pages, one folder per address, and globals.css
-app/dashboard/       Shop dashboard: order board and stock
+app/dashboard/       Shop dashboard: order board, stock, and sales
 app/partner/         Delivery partner screen
 app/api/             /api/health, and [...path] which hands every other /api call to server/api.ts
 components/          Shell (header, cart, search), StaffShell (dashboard frame), cards, map, 3D wrappers
@@ -177,7 +188,8 @@ server/session.ts    Login cookie
 server/seed.ts       What a new database starts with
 lib/select.ts        Smart store selection (used by the page and by the server)
 lib/nearby.ts        Distance, opening hours, delivery time for each shop
-lib/orders.ts        Order shape and steps, shared by pages and server
+lib/orders.ts        Order shape and steps, and the partner pay rule, shared by pages and server
+lib/reports.ts       Shop sales and partner earnings, worked out from delivered orders
 lib/state.ts         What the browser holds: cart and location (saved), user and orders (from the server)
 lib/api.ts, live.ts  How pages call the server and listen for changes
 tests/               Unit tests (Node's built-in test runner)
@@ -188,6 +200,33 @@ Dockerfile           How the app is packaged into an image
 
 MongoDB collections: `products`, `stores`, `inventory` (one row per shop and product, with
 price and stock), `users`, `orders`, `counters` (the change counters behind live updates).
+
+## How the data is kept
+
+The mobile number is the customer's identity, and an order is the permanent record of a sale.
+Everything else is worked out from the orders.
+
+- **users**: one account per mobile number (a unique index on `phone`). Logging in again with
+  the same number finds the same account; nothing is created twice.
+- **orders**: each order keeps who ordered (`customerPhone`, `customerName`), which shop sold it,
+  every line with the product's **name, pack size, quantity and the price it sold for** (copied
+  at the time of the order, so history never changes if the catalogue does), the delivery fee
+  and total, and for the partner `pickupKm` and `partnerPay`. `deliveredAt` records the handover.
+- **Customer history** is looked up by `customerPhone`, not by account id, so the number always
+  brings its orders back.
+- **Shop sales** are the shop's delivered orders, added up by product (`lib/reports.ts`).
+  Revenue is the item value; the delivery fee is not the shop's.
+- **Partner earnings** are the sum of `partnerPay` over the partner's delivered orders. Cash
+  collected at the door is shown separately: it is the customers' payment, handed over.
+
+Indexes on `orders`, one for each question the site asks: `{ customerPhone, createdAt }` (a
+customer's history), `{ storeId, createdAt }` and `{ storeId, status, createdAt }` (a shop's
+board and sales), `{ status, partnerId }` (jobs waiting for a partner), `{ partnerId, status,
+createdAt }` (a partner's deliveries and earnings), plus `{ customerId, createdAt }`. They are
+created when the site starts, so an existing database gains new ones on the next restart.
+
+Orders from before this change have no saved product names or partner pay. They still show:
+names come from the catalogue, and pay is worked out from the ride to the customer.
 
 ## Smart store selection
 

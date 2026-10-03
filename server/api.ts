@@ -15,7 +15,9 @@
 //   PUT    /api/shop/stock                 shop owner     { pid, price, stock }
 //   POST   /api/shop/products              shop owner     add a new product
 //   PUT    /api/shop/paused                shop owner     { paused }
+//   GET    /api/shop/sales?period=         shop owner     what the shop sold, with prices
 //   PUT    /api/partner                    partner        { online, place }
+//   GET    /api/partner/earnings?period=   partner        what the partner earned
 //   GET    /api/live                       everyone       server-sent events
 //
 // Every request names its "seat" (customer, shop or partner) in the X-LocalRush-Seat header;
@@ -115,9 +117,13 @@ export async function handle(request: Request): Promise<Response> {
         return json({ product: await service.addProduct(repo, need(user), await body(request)) }, 201);
       case 'PUT shop/paused':
         return json(await service.setPaused(repo, need(user), (await body(request)).paused));
+      case 'GET shop/sales':
+        return json(await service.shopSales(repo, need(user), url.searchParams.get('period')));
 
       case 'PUT partner':
         return json({ user: service.publicUser(await service.setPartner(repo, need(user), await body(request))) });
+      case 'GET partner/earnings':
+        return json(await service.partnerEarnings(repo, need(user), url.searchParams.get('period')));
 
       case 'GET live':
         return liveResponse(repo, channelsFor(user), request);

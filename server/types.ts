@@ -23,11 +23,15 @@ export type User = {
 
 export type OrderFilter = {
   customerId?: string;
+  /** A customer's orders are found by mobile number, so history follows the number. */
+  customerPhone?: string;
   storeId?: string;
   partnerId?: string;
   statuses?: Status[];
   unassigned?: boolean;
   since?: number;
+  /** Most orders to return, newest first. 300 if not given; 0 means all (for reports). */
+  limit?: number;
 };
 
 export type HistoryEntry = { status: Status; at: number; note?: string };

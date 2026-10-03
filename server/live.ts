@@ -10,7 +10,7 @@ export function channelsFor(user: User | null): string[] {
   if (!user) return ['catalog'];
   if (user.role === 'shop') return ['catalog', 'store:' + user.storeId];
   if (user.role === 'partner') return ['partners', 'partner:' + user.id];
-  return ['catalog', 'user:' + user.id];
+  return ['catalog', 'phone:' + user.phone];
 }
 
 const kind = (channel: string) => (channel === 'catalog' ? 'catalog' : 'orders');
