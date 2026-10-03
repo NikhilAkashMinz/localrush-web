@@ -2,7 +2,8 @@
 // same under Next.js (app/api/[...path]/route.ts) and in the tests, with no framework needed.
 //
 //   GET    /api/catalog                    everyone       products, shops, stock
-//   POST   /api/auth/login                 everyone       { name, phone, code }
+//   GET    /api/demo                       everyone       the ready-made demo accounts
+//   POST   /api/auth/login                 everyone       { name, phone, code }, for this seat's kind of account
 //   POST   /api/auth/logout
 //   GET    /api/me                         everyone       the logged-in user, or null
 //   PATCH  /api/me                         logged in      { name }
@@ -16,12 +17,16 @@
 //   PUT    /api/shop/paused                shop owner     { paused }
 //   PUT    /api/partner                    partner        { online, place }
 //   GET    /api/live                       everyone       server-sent events
+//
+// Every request names its "seat" (customer, shop or partner) in the X-LocalRush-Seat header;
+// each seat has its own login cookie. See server/session.ts.
 
 import { channelsFor, liveResponse } from './live';
 import { getRepo } from './repo';
+import { seedUsers } from './seed';
 import * as service from './service';
 import { ApiError } from './service';
-import { clearCookie, readSession, sessionCookie } from './session';
+import { clearCookie, readSession, seatOf, sessionCookie, type Seat } from './session';
 import type { Repo, User } from './types';
 
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -42,9 +47,11 @@ async function body(request: Request): Promise<Record<string, unknown>> {
   }
 }
 
-async function currentUser(repo: Repo, request: Request): Promise<User | null> {
-  const id = readSession(request);
-  return id ? repo.userById(id) : null;
+/** The account logged in on this seat. A shop owner's cookie never counts on a customer page, and so on. */
+async function currentUser(repo: Repo, request: Request, seat: Seat): Promise<User | null> {
+  const id = readSession(request, seat);
+  const user = id ? await repo.userById(id) : null;
+  return user && user.role === seat ? user : null;
 }
 
 function need(user: User | null): User {
@@ -59,18 +66,26 @@ export async function handle(request: Request): Promise<Response> {
 
   try {
     const repo = await getRepo();
-    const user = await currentUser(repo, request);
+    const seat = seatOf(request);
+    const user = await currentUser(repo, request, seat);
 
     switch (route) {
       case 'GET catalog':
         return json(await service.catalogue(repo));
 
+      // The ready-made shop owner and delivery partner accounts, so the login page can offer
+      // them while the project is a demo. Remove this route once shops sign up for real.
+      case 'GET demo':
+        return json({
+          accounts: seedUsers().map((u) => ({ role: u.role, name: u.name.replace(' (owner)', ''), phone: u.phone, storeId: u.storeId })),
+        });
+
       case 'POST auth/login': {
-        const who = await service.login(repo, await body(request));
-        return json({ user: service.publicUser(who) }, 200, { 'Set-Cookie': sessionCookie(who.id) });
+        const who = await service.login(repo, await body(request), seat);
+        return json({ user: service.publicUser(who) }, 200, { 'Set-Cookie': sessionCookie(who.id, who.role) });
       }
       case 'POST auth/logout':
-        return json({ ok: true }, 200, { 'Set-Cookie': clearCookie() });
+        return json({ ok: true }, 200, { 'Set-Cookie': clearCookie(seat) });
 
       case 'GET me':
         return json({ user: user ? service.publicUser(user) : null });
@@ -82,7 +97,8 @@ export async function handle(request: Request): Promise<Response> {
 
       case 'GET orders':
         if (parts[1]) return json({ order: await service.getOrder(repo, need(user), parts[1]) });
-        return json(await service.listOrders(repo, need(user)));
+        // "userId" lets a page notice that someone else logged in from another tab of this browser.
+        return json({ ...(await service.listOrders(repo, need(user))), userId: need(user).id });
       case 'POST orders': {
         if (parts[1] && parts[2]) {
           return json({ order: await service.act(repo, need(user), parts[1], parts[2], await body(request)) });

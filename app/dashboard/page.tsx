@@ -260,7 +260,7 @@ export default function DashboardPage() {
                 <span className={list.length ? 'hot' : ''}>{list.length}</span>
               </header>
               {list.length === 0 ? (
-                <p className="st-none">{c.key === 'new' ? 'New orders appear here by themselves.' : c.hint}</p>
+                <p className="st-none">{c.key === 'new' ? `Orders sent to ${shop.name} appear here by themselves.` : c.hint}</p>
               ) : (
                 <ul>
                   {list.map((o) => (

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { category, PLACES, PRODUCTS, product, QUICK_NEEDS, type Place } from '@/lib/data';
 import { mins, rupee } from '@/lib/format';
 import { useNear, usePlan } from '@/lib/hooks';
+import { seatFor } from '@/lib/api';
 import { onLive, onLiveStatus, startLive, stopLive } from '@/lib/live';
 import { availability, shopsNear, usable } from '@/lib/nearby';
 import { DELIVERY_FEE, FREE_DELIVERY_FROM } from '@/lib/select';
@@ -490,7 +491,8 @@ function Footer() {
           <Link href="/shops">Shops near you</Link>
           <Link href="/orders">Your orders</Link>
           <Link href="/account">Account</Link>
-          <Link href="/login">Shop or delivery partner login</Link>
+          <Link href="/dashboard">Shop dashboard</Link>
+          <Link href="/partner">Delivery partner</Link>
           <button type="button" onClick={() => actions.open('place')}>
             Change location
           </button>
@@ -518,14 +520,21 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const ready = useStore((s) => s.ready);
   const userId = useStore((s) => s.user?.id ?? '');
   const path = usePathname();
-  const staff = path.startsWith('/dashboard') || path.startsWith('/partner');
+  const seat = seatFor(path);
+  const staff = seat !== 'customer';
 
   useEffect(() => {
     void actions.hydrate();
   }, []);
 
-  // One live connection per tab. It is reopened on login and logout, because each
-  // person follows different things: a customer their orders, a shop its counter.
+  // The customer site, the shop dashboard and the delivery screen each have their own
+  // login. Moving between them in one tab switches to that side's account.
+  useEffect(() => {
+    void actions.enterSeat(seat);
+  }, [seat]);
+
+  // One live connection per tab. It is reopened on login, logout and when the tab moves to
+  // another side of the site, because each person follows different things.
   useEffect(() => {
     if (!ready) return;
     const offChange = onLive((kinds) => {
@@ -540,7 +549,22 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       stopLive();
       actions.setLive(false);
     };
-  }, [ready, userId]);
+  }, [ready, userId, seat]);
+
+  // A browser shares one login between all its tabs. When this tab comes back into view,
+  // check whether someone logged in or out in another tab meanwhile.
+  useEffect(() => {
+    if (!ready) return;
+    const check = () => {
+      if (document.visibilityState === 'visible') void actions.refreshMe();
+    };
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('focus', check);
+    return () => {
+      document.removeEventListener('visibilitychange', check);
+      window.removeEventListener('focus', check);
+    };
+  }, [ready]);
 
   // Close any open panel and return to the top when the page changes.
   useEffect(() => {

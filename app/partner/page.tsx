@@ -131,9 +131,16 @@ function Active({ o }: { o: Order }) {
               onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
               inputMode="numeric"
               autoComplete="off"
-              placeholder="0000"
+              aria-describedby={`code-help-${o.id}`}
             />
           </label>
+          <p className="quiet small" id={`code-help-${o.id}`}>
+            Ask the customer for the code for order <b>{o.id}</b>. They see it on their tracking page and in Your orders.
+            Each order has its own code.{' '}
+            <a className="link" href={`/orders/${o.id}`} target="_blank" rel="noreferrer">
+              Testing? Open the customer&apos;s page
+            </a>
+          </p>
           {o.customerPhone && (
             <a className="btn btn-line" href={`tel:+91${o.customerPhone}`}>
               Call customer

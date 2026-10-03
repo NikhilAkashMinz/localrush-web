@@ -63,26 +63,32 @@ The Check workflow on GitHub does this on every push, with a throwaway MongoDB.
 
 ## Try all three sides at once
 
-Each person needs their own login, and a browser keeps one login at a time. So open three
-separate windows: for example a normal Chrome window, an Incognito window, and Edge.
+The customer site, the shop dashboard and the delivery screen each have their own login page
+and their own login cookie. One browser can stay logged in to all three at once, and logging
+in or out of one never changes the other two. Open three tabs:
 
-| Window | Log in with | You land on |
+| Tab | Open | Log in with |
 |---|---|---|
-| Customer | Any name and any new 10-digit mobile number | The shop front |
-| Shop owner | The "Shop owner" button on the login page (mobile `9000000001`) | `/dashboard` |
-| Delivery partner | The "Delivery partner" button on the login page (mobile `9100000001`) | `/partner` |
+| Customer | `localhost:3000` then Log in | Any name and any new 10-digit mobile number |
+| Shop owner | `localhost:3000/dashboard` | Choose a shop from the list (Sri Lakshmi is `9000000001`) |
+| Delivery partner | `localhost:3000/partner` | Choose a partner from the list (Ravi K. is `9100000001`) |
 
-Any 4-digit code logs in (no SMS is sent yet). Then:
+Any 4-digit code logs in (no SMS is sent yet). Each login only accepts its own kind of
+account: a shop owner's number is refused on the customer login, and so on. Then:
 
 1. **Partner**: switch to Online.
 2. **Customer**: keep the location on PES University, add milk and bread, check out.
-   Checkout shows which shop was picked.
+   Checkout shows which shop was picked. The tracking page shows the order's 4-digit
+   delivery code straight away.
 3. **Shop owner**: the order appears under New with a chime. Press Accept, then Packed and ready.
-4. **Partner**: the job appears. Take it, press "I have picked it up", then enter the 4-digit
-   code shown on the customer's tracking page.
+4. **Partner**: the job appears. Take it, press "I have picked it up", then enter the
+   delivery code for that order. Each order has its own code.
 5. **Customer**: the tracking page moved through every step without a refresh.
 
-If checkout picked a different shop, log the shop window in as that shop's owner:
+An order appears only on the dashboard of the shop it was sent to. Milk and bread near PES
+University go to Sri Lakshmi; a notebook goes to Campus Xerox & Stationery, and so on. If
+checkout picked a different shop, the customer's tracking page has an "Open that shop's
+dashboard" link, and the dashboard login lists every shop. The numbers are:
 
 | Mobile | Shop | Mobile | Shop |
 |---|---|---|---|
@@ -101,6 +107,9 @@ Delivery partners are `9100000001` to `9100000004`. More things to show:
 - **Stock and prices**: change a price or mark something out of stock and the customer site updates.
 - **Taking orders** switch: pause the shop and customers see it as closed until it is switched back.
 - Two partners online: the first to press "Take this delivery" gets it; the other is told it is gone.
+
+A browser holds one login of each kind. To use two accounts of the same kind at once (two
+partners, or two customers), open the second in an Incognito window or a different browser.
 
 ## How an order moves
 
@@ -126,12 +135,16 @@ dashboard shows the connection state.
 
 ## API
 
-All under `/api`. The login is a signed, HTTP-only cookie.
+All under `/api`. The login is a signed, HTTP-only cookie, one per kind of account
+(`lr_customer`, `lr_shop`, `lr_partner`). Each request says which side it is for in the
+`X-LocalRush-Seat` header, which the website takes from the page address, and the server
+reads only that cookie. A request without the header is judged by the page it came from.
 
 | Method and path | Who | What |
 |---|---|---|
 | `GET /catalog` | everyone | Products, shops, stock and prices |
-| `POST /auth/login` | everyone | `{ name, phone, code }` |
+| `GET /demo` | everyone | The ready-made shop owner and partner accounts (demo only) |
+| `POST /auth/login` | everyone | `{ name, phone, code }`; only this seat's kind of account |
 | `POST /auth/logout` | | |
 | `GET /me`, `PATCH /me` | logged in | Current user; change name |
 | `DELETE /me/addresses/:id` | logged in | Remove a saved address |

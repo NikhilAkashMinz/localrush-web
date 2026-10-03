@@ -33,11 +33,18 @@ afterEach(() => repo.close());
 
 type Reply<T = any> = { status: number; data: T; cookie: string };
 
-async function call<T = any>(method: string, path: string, opts: { as?: string; body?: unknown } = {}): Promise<Reply<T>> {
+async function call<T = any>(method: string, path: string, opts: { as?: string; body?: unknown; seat?: string; from?: string } = {}): Promise<Reply<T>> {
   const response = await handle(
     new Request('http://test.local/api/' + path, {
       method,
-      headers: { 'content-type': 'application/json', ...(opts.as ? { cookie: opts.as } : {}) },
+      // Like the website, say which seat (customer, shop, partner) the call is for. The
+      // cookie is named after it: lr_customer, lr_shop or lr_partner.
+      headers: {
+        'content-type': 'application/json',
+        ...(opts.as ? { cookie: opts.as, 'x-localrush-seat': /^lr_(\w+)=/.exec(opts.as)?.[1] ?? 'customer' } : {}),
+        ...(opts.seat ? { 'x-localrush-seat': opts.seat } : {}),
+        ...(opts.from ? { referer: 'http://test.local' + opts.from } : {}),
+      },
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     }),
   );
@@ -45,8 +52,11 @@ async function call<T = any>(method: string, path: string, opts: { as?: string; 
   return { status: response.status, data: (await response.json()) as T, cookie: setCookie.split(';')[0] };
 }
 
+// Each seat logs in its own kind of account: the demo shop owners are 90000000xx, the partners 91000000xx.
+const seatOfPhone = (phone: string) => (phone.startsWith('90000000') ? 'shop' : phone.startsWith('91000000') ? 'partner' : 'customer');
+
 async function loginAs(phone: string, name = 'Asha Rao') {
-  const r = await call('POST', 'auth/login', { body: { name, phone, code: '1234' } });
+  const r = await call('POST', 'auth/login', { seat: seatOfPhone(phone), body: { name, phone, code: '1234' } });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   return r.cookie;
 }
@@ -93,6 +103,73 @@ test('logging in creates a customer, and the session cookie cannot be forged', a
   const forged = cookie.replace(/\.[^.]+$/, '.not-the-real-signature');
   assert.equal((await call('GET', 'me', { as: forged })).data.user, null);
   assert.equal((await call('GET', 'orders', { as: forged })).status, 401);
+});
+
+test('one browser can be a customer, a shop owner and a partner at once, each on its own seat', async () => {
+  const customer = await loginAs('9876543210', 'Asha Rao');
+  const shop = await loginAs(ownerPhone(0));
+  const partner = await loginAs(partnerPhone(0));
+  // What a real browser sends: all three cookies with every request.
+  const jar = [customer, shop, partner].join('; ');
+
+  const who = async (seat: string) => (await call('GET', 'me', { as: jar, seat })).data.user;
+  assert.equal((await who('customer')).role, 'customer');
+  assert.equal((await who('shop')).storeId, SAMPLE.stores[0].id);
+  assert.equal((await who('partner')).role, 'partner');
+
+  // A shop owner's login is never accepted on the customer seat, even if the cookie is renamed.
+  const renamed = shop.replace('lr_shop=', 'lr_customer=');
+  assert.equal((await call('GET', 'me', { as: renamed, seat: 'customer' })).data.user, null);
+  assert.equal((await call('PUT', 'shop/paused', { as: customer, seat: 'shop', body: { paused: true } })).status, 401);
+
+  // Logging out of one seat leaves the others logged in.
+  const out = await call('POST', 'auth/logout', { as: jar, seat: 'shop' });
+  assert.match(out.cookie, /^lr_shop=$/);
+  assert.equal((await who('customer')).role, 'customer');
+});
+
+test('the demo accounts list has an owner for every shop, and each one can log in', async () => {
+  const { accounts } = (await call('GET', 'demo')).data;
+  const owners = accounts.filter((a: { role: string }) => a.role === 'shop');
+  assert.equal(owners.length, SAMPLE.stores.length);
+  const xerox = owners.find((a: { name: string }) => a.name === 'Campus Xerox & Stationery');
+  const cookie = await loginAs(xerox.phone);
+  assert.equal((await call('GET', 'me', { as: cookie })).data.user.storeId, xerox.storeId);
+});
+
+test('each seat logs in only its own kind of account, and never touches the others', async () => {
+  const login = (seat: string, phone: string) => call('POST', 'auth/login', { seat, body: { name: 'Someone', phone, code: '1234' } });
+
+  // A shop owner's number on the customer site is turned away, and no cookie is set.
+  const wrong = await login('customer', ownerPhone(0));
+  assert.equal(wrong.status, 409);
+  assert.equal(wrong.data.code, 'wrong-seat');
+  assert.equal(wrong.cookie, '');
+  assert.equal((await login('partner', ownerPhone(0))).status, 409);
+
+  // An unknown number on the shop dashboard is not an account, and does not become a customer.
+  const unknown = await login('shop', '9812345678');
+  assert.equal(unknown.status, 404);
+  assert.equal(await repo.userByPhone('9812345678'), null);
+
+  // The cookie is named after the seat that logged in.
+  assert.match((await login('partner', partnerPhone(1))).cookie, /^lr_partner=/);
+  assert.match((await login('shop', ownerPhone(2))).cookie, /^lr_shop=/);
+  assert.match((await login('customer', '9812345678')).cookie, /^lr_customer=/);
+});
+
+test('a request with no seat header goes by the page it came from', async () => {
+  const customer = await loginAs('9876543210', 'Asha Rao');
+  const partner = await loginAs(partnerPhone(0));
+  const jar = [customer, partner].join('; ');
+  const raw = (method: string, path: string, from: string) =>
+    handle(new Request('http://test.local/api/' + path, { method, headers: { cookie: jar, referer: 'http://test.local' + from } }));
+
+  assert.equal((await (await raw('GET', 'me', '/partner')).json()).user.role, 'partner');
+  assert.equal((await (await raw('GET', 'me', '/orders/LR123')).json()).user.role, 'customer');
+  // Logging out from the delivery screen clears the partner login only.
+  const out = await raw('POST', 'auth/logout', '/partner');
+  assert.match(out.headers.get('set-cookie') ?? '', /^lr_partner=;/);
 });
 
 test('login checks the phone number, the code and the name', async () => {
@@ -184,6 +261,8 @@ test('when two partners tap the same delivery, exactly one gets it', async () =>
 
   const jobs = await call('GET', 'orders', { as: p1 });
   assert.equal(jobs.data.available.length, 1);
+  // The list says whose it is, so a page can notice a login change made in another tab.
+  assert.equal(jobs.data.userId, 'u-partner-1');
   assert.equal(jobs.data.available[0].otp, undefined);
   assert.equal(jobs.data.available[0].customerPhone, '');
 

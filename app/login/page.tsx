@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { Mark } from '@/components/Icons';
@@ -8,15 +9,11 @@ import { errorText } from '@/lib/api';
 import { actions } from '@/lib/state';
 import './login.css';
 
-// Accounts that exist in a fresh database, so the shop and delivery sides can be tried.
-const DEMO = [
-  { label: 'Shop owner', name: 'Sri Lakshmi Provision Store', phone: '9000000001' },
-  { label: 'Delivery partner', name: 'Ravi K.', phone: '9100000001' },
-];
-
 function LoginForm() {
   const router = useRouter();
-  const next = useSearchParams().get('next') || '/';
+  const params = useSearchParams();
+  const next = params.get('next') || '/';
+  const wantedShop = params.get('shop');
   const form = useRef<HTMLDivElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -64,10 +61,7 @@ function LoginForm() {
       clearTimeout(timer.current);
       timer.current = setTimeout(() => {
         actions.toast(`Logged in as ${user.name.split(' ')[0]}`);
-        // Shop owners and delivery partners go to their own screens.
-        if (user.role === 'shop') router.push('/dashboard');
-        else if (user.role === 'partner') router.push('/partner');
-        else router.push(next.startsWith('/') && !next.startsWith('//') ? next : '/');
+        router.push(next.startsWith('/') && !next.startsWith('//') ? next : '/');
       }, 900);
     } catch (err) {
       setBusy(false);
@@ -75,13 +69,10 @@ function LoginForm() {
     }
   };
 
-  const pickDemo = (d: (typeof DEMO)[number]) => {
-    setName(d.name);
-    setPhone(d.phone);
-    setCode('');
-    setError('');
-    setStep('code');
-  };
+  // Older links pointed here with ?shop=...; the shop dashboard has its own login now.
+  useEffect(() => {
+    if (wantedShop) router.replace('/dashboard?shop=' + encodeURIComponent(wantedShop));
+  }, [wantedShop, router]);
 
   return (
     <div className="lg-wrap">
@@ -120,12 +111,16 @@ function LoginForm() {
                 Send code
               </button>
               <div className="lg-demo">
-                <p className="quiet small">Trying the project? Log in as one of the demo accounts:</p>
-                {DEMO.map((d) => (
-                  <button type="button" key={d.phone} className="pill" onClick={() => pickDemo(d)}>
-                    {d.label}
-                  </button>
-                ))}
+                <p className="quiet small">
+                  This login is for customers. Shop owners and delivery partners log in on their own screens, and all
+                  three can stay logged in at once:
+                </p>
+                <Link href="/dashboard" className="pill">
+                  Shop dashboard
+                </Link>
+                <Link href="/partner" className="pill">
+                  Delivery partner
+                </Link>
               </div>
             </form>
           ) : (

@@ -136,6 +136,36 @@ export default function TrackPage() {
                   </button>
                 )}
               </div>
+              {!done && (
+                <p className="demo-turn">
+                  <b>Testing the project?</b>{' '}
+                  {order.status === 'placed' || order.status === 'accepted' ? (
+                    <>
+                      This order is on the dashboard of <b>{order.storeName}</b>, and only that shop&apos;s owner sees it.{' '}
+                      <a className="link" href={`/dashboard?shop=${encodeURIComponent(order.storeId)}`} target="_blank" rel="noreferrer">
+                        Open that shop&apos;s dashboard
+                      </a>{' '}
+                      to {order.status === 'placed' ? 'accept it' : 'mark it packed'}.
+                    </>
+                  ) : order.status === 'packed' ? (
+                    <>
+                      It is packed and waiting for a delivery partner who is online near the shop.{' '}
+                      <a className="link" href="/partner" target="_blank" rel="noreferrer">
+                        Open the delivery partner screen
+                      </a>{' '}
+                      and take it.
+                    </>
+                  ) : (
+                    <>
+                      The next step is the delivery partner&apos;s, on the{' '}
+                      <a className="link" href="/partner" target="_blank" rel="noreferrer">
+                        delivery partner screen
+                      </a>
+                      {order.status === 'picked' ? '. They will ask for the code shown on this page.' : '.'}
+                    </>
+                  )}
+                </p>
+              )}
             </>
           )}
         </div>
@@ -160,17 +190,17 @@ export default function TrackPage() {
             </ol>
           )}
 
-          {order.partnerName && (order.status === 'assigned' || order.status === 'picked') && (
+          {!stopped && !done && (
             <div className="partner">
               <span className="partner-face" aria-hidden>
-                🛵
+                {order.partnerName ? '🛵' : '🔑'}
               </span>
               <span>
-                <b>{order.partnerName}</b>
-                <small>Your delivery partner</small>
+                <b>{order.partnerName ?? 'Your delivery code'}</b>
+                <small>{order.partnerName ? 'Your delivery partner. Give them this code at the door.' : 'Give this code to the delivery partner at the door.'}</small>
               </span>
               <span className="otp">
-                <small>Code at the door</small>
+                <small>Code for {order.id}</small>
                 <b>{order.otp}</b>
               </span>
             </div>

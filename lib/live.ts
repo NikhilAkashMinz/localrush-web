@@ -5,6 +5,8 @@
 // If the connection drops, the browser reconnects by itself and we check every few
 // seconds in the meantime, so nothing is missed.
 
+import { currentSeat } from './api';
+
 export type LiveKind = 'catalog' | 'orders';
 type Handler = (kinds: LiveKind[]) => void;
 
@@ -32,7 +34,8 @@ export function startLive() {
     startFallback();
     return;
   }
-  source = new EventSource('/api/live');
+  // EventSource cannot send headers, so the seat goes in the address.
+  source = new EventSource('/api/live?seat=' + currentSeat());
   source.onmessage = (e) => {
     stopFallback();
     setStatus(true);

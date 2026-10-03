@@ -67,6 +67,11 @@ export default function OrdersPage() {
                   <small>
                     {count} {count === 1 ? 'item' : 'items'}, {rupee(o.total)}, placed {when(o.createdAt)}
                   </small>
+                  {!over && o.otp && (
+                    <small>
+                      Order {o.id} · delivery code <b>{o.otp}</b>
+                    </small>
+                  )}
                 </div>
                 <span className={cls}>
                   {STATUS_LABEL[o.status]}

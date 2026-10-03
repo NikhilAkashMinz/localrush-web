@@ -5,7 +5,7 @@
 // No library: React's useSyncExternalStore does the subscribing.
 
 import { useSyncExternalStore } from 'react';
-import { api, type Me } from './api';
+import { api, ApiFail, currentSeat, type Me, type Role } from './api';
 import { PLACES, setDataset, type Dataset, type Place, type Product } from './data';
 import type { Order } from './orders';
 import type { Mode } from './select';
@@ -99,6 +99,8 @@ export const getState = () => state;
 
 let toastId = 1;
 let started = false;
+/** The seat whose account is in the store right now. */
+let loadedSeat: Role = 'customer';
 
 export const actions = {
   /** Load what was saved in this browser, then the catalogue and the logged-in user from the server. */
@@ -115,9 +117,26 @@ export const actions = {
     const clean: Partial<State> = {};
     for (const k of SAVED) if (saved[k] !== undefined && saved[k] !== null) Object.assign(clean, { [k]: saved[k] });
     state = { ...state, ...clean };
+    // Which login this tab uses depends on the page it opened on.
+    loadedSeat = currentSeat();
     await Promise.all([actions.refreshCatalog(), actions.refreshMe()]);
     await actions.refreshOrders();
     set({ ready: true });
+  },
+
+  /**
+   * Called when the page moves between the customer site, the shop dashboard and the
+   * delivery screen. Each has its own login, so load the account that belongs to this one.
+   */
+  async enterSeat(seat: Role) {
+    if (loadedSeat === seat) return;
+    loadedSeat = seat;
+    set({ ready: false, user: null, orders: [], available: [] }, false);
+    // Requests take their seat from the address bar; give the browser a moment if it has not caught up.
+    for (let i = 0; i < 40 && currentSeat() !== seat; i++) await new Promise((r) => setTimeout(r, 25));
+    await actions.refreshMe();
+    await actions.refreshOrders();
+    if (loadedSeat === seat) set({ ready: true }, false);
   },
 
   async refreshCatalog() {
@@ -132,9 +151,15 @@ export const actions = {
   },
 
   async refreshMe() {
+    const seat = currentSeat();
     try {
       const { user } = await api<{ user: Me | null }>('GET', 'me');
-      set({ user }, false);
+      // The page moved to another seat while we were asking: this answer is for the old one.
+      if (seat !== currentSeat()) return;
+      // Only touch the store when something really changed, so pages do not redraw for nothing.
+      if (JSON.stringify(user) !== JSON.stringify(state.user)) {
+        set(user?.id === state.user?.id ? { user } : { user, orders: [], available: [] }, false);
+      }
     } catch {
       // Stay as we are; the next action will show a clear error if the server is down.
     }
@@ -145,17 +170,26 @@ export const actions = {
       if (state.orders.length || state.available.length) set({ orders: [], available: [] }, false);
       return;
     }
+    const seat = currentSeat();
     try {
-      const data = await api<{ orders: Order[]; available?: Job[] }>('GET', 'orders');
+      const data = await api<{ orders: Order[]; available?: Job[]; userId?: string }>('GET', 'orders');
+      if (seat !== currentSeat()) return;
+      // A browser holds one login for all its tabs. If someone logged in as a different
+      // person in another tab, this tab must switch to that person too, not show their
+      // orders under the old name.
+      if (data.userId && data.userId !== state.user?.id) await actions.refreshMe();
+      if (data.userId && data.userId !== state.user?.id) return;
       set({ orders: data.orders, available: data.available ?? [] }, false);
-    } catch {
-      // Leave the last known list on screen.
+    } catch (e) {
+      // Logged out from another tab: find out who we are now. Otherwise keep the last list on screen.
+      if (e instanceof ApiFail && e.status === 401) await actions.refreshMe();
     }
   },
 
   async login(input: { name: string; phone: string; code: string }) {
     const { user } = await api<{ user: Me }>('POST', 'auth/login', input);
-    set({ user }, false);
+    // Each seat only ever logs in its own kind of account, so this is always this page's user.
+    set({ user, orders: [], available: [] }, false);
     await actions.refreshOrders();
     return user;
   },
@@ -204,6 +238,8 @@ export const actions = {
       void actions.refreshOrders();
       return order;
     } catch (e) {
+      // "Not allowed" usually means the login changed in another tab of this browser.
+      if (e instanceof ApiFail && (e.status === 401 || e.status === 403)) await actions.refreshMe();
       // Someone else may have moved it first: show where things really stand.
       void actions.refreshOrders();
       throw e;

@@ -271,3 +271,20 @@
 .lg-demo p {
   flex-basis: 100%;
 }
+
+.lg-shop {
+  flex: 1 1 100%;
+  border: 0;
+  box-shadow: inset 0 0 0 1.5px var(--line);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: var(--card);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lg-shop:focus {
+  outline: 0;
+  box-shadow: inset 0 0 0 2px var(--teal);
+}

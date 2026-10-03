@@ -2,6 +2,10 @@
 
 // The website's way of talking to the server. Every call goes to /api/... on the same
 // address the site is served from, and the login cookie is sent automatically.
+//
+// Each side of LocalRush is a "seat" with its own login: the shop dashboard is the shop
+// seat, the delivery screen the partner seat, everything else the customer seat. That is
+// why one browser can keep all three logged in, each in its own tab.
 
 import type { Place } from './data';
 
@@ -20,6 +24,16 @@ export type Me = {
   addresses: Address[];
 };
 
+/** Which seat a page address belongs to. */
+export const seatFor = (path: string): Role =>
+  path.startsWith('/dashboard') ? 'shop' : path.startsWith('/partner') ? 'partner' : 'customer';
+
+/**
+ * The seat of the page this tab is showing right now. It is read from the address every
+ * time, never remembered, so a request can never go out under the wrong login.
+ */
+export const currentSeat = (): Role => (typeof location === 'undefined' ? 'customer' : seatFor(location.pathname));
+
 /** An error the server explained. `message` is written to be shown to the person as it is. */
 export class ApiFail extends Error {
   constructor(
@@ -36,7 +50,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   try {
     response = await fetch('/api/' + path, {
       method,
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      headers: { 'X-LocalRush-Seat': currentSeat(), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
       cache: 'no-store',
     });

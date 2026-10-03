@@ -62,12 +62,24 @@ export function publicUser(u: User) {
   return { id: u.id, name: u.name, phone: u.phone, role: u.role, storeId: u.storeId, online: u.online, place: u.place, addresses: u.addresses };
 }
 
-export async function login(repo: Repo, input: { name?: unknown; phone?: unknown; code?: unknown }): Promise<User> {
+const KIND: Record<User['role'], string> = { customer: 'customer', shop: 'shop owner', partner: 'delivery partner' };
+const WHERE: Record<User['role'], string> = { customer: 'the customer site', shop: 'the shop dashboard', partner: 'the delivery partner screen' };
+
+/**
+ * Log in on one seat. The customer site logs in customers (and signs up new ones); the shop
+ * dashboard and the delivery screen each log in only their own kind of account. That keeps
+ * the three logins fully separate, so they can all be open in one browser.
+ */
+export async function login(repo: Repo, input: { name?: unknown; phone?: unknown; code?: unknown }, seat: User['role'] = 'customer'): Promise<User> {
   if (typeof input.phone !== 'string' || !/^[6-9]\d{9}$/.test(input.phone)) throw new ApiError(400, 'Enter a 10-digit mobile number.');
   // Demo login: there is no SMS provider yet, so any 4 digits are accepted.
   if (typeof input.code !== 'string' || !/^\d{4}$/.test(input.code)) throw new ApiError(400, 'Enter the 4-digit code.');
   const existing = await repo.userByPhone(input.phone);
+  if (existing && existing.role !== seat) {
+    throw new ApiError(409, `That number belongs to a ${KIND[existing.role]}. Log in on ${WHERE[existing.role]} instead.`, 'wrong-seat');
+  }
   if (existing) return existing;
+  if (seat !== 'customer') throw new ApiError(404, `No ${KIND[seat]} account uses that number.`, 'unknown');
   if (!isText(input.name, 2, 60)) throw new ApiError(400, 'Enter your name.');
   const user: User = { id: id('u-', 6), name: input.name.trim(), phone: input.phone, role: 'customer', addresses: [], createdAt: clock.now() };
   await repo.putUser(user);
