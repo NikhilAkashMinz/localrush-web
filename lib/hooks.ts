@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { availability, shopsNear } from './nearby';
+import { availability, istHour, shopsNear } from './nearby';
 import { planOrder } from './select';
 import { useStore } from './state';
 
@@ -15,13 +15,14 @@ export function useNow(ms: number) {
   return now;
 }
 
-/** Shops measured from the chosen location. Refreshes each minute so opening hours stay right. */
+/** Shops measured from the chosen location. Refreshes each minute, and whenever the catalogue changes. */
 export function useNear() {
   const place = useStore((s) => s.place);
+  const tick = useStore((s) => s.tick);
   const now = useNow(60_000);
-  const hour = new Date(now).getHours();
+  const hour = istHour(new Date(now));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => shopsNear(place.lat, place.lng, new Date(now)), [place, hour]);
+  return useMemo(() => shopsNear(place.lat, place.lng, new Date(now)), [place, hour, tick]);
 }
 
 export function useAvailability(pid: string) {

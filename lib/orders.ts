@@ -1,29 +1,49 @@
-// Order progress. There is no backend yet, so an order moves through its stages on a
-// compressed demo clock: a whole delivery plays out in about a minute. When the shop
-// and delivery partner apps exist, they set these stages instead.
+// Orders: the shape shared by the website, the dashboards and the server.
 
 import type { Line } from './select';
 
+export type Status =
+  | 'placed' // sent to the shop, waiting for it to accept
+  | 'accepted' // the shop is packing it
+  | 'packed' // ready, waiting for a delivery partner
+  | 'assigned' // a partner has claimed it and is riding to the shop
+  | 'picked' // the partner has it and is riding to the customer
+  | 'delivered'
+  | 'rejected' // the shop said no and nobody else nearby could take it
+  | 'cancelled'; // the customer cancelled before the shop accepted
+
 export type Order = {
   id: string;
-  placedAt: number;
+  customerId: string;
+  customerName: string;
+  customerPhone: string;
   storeId: string;
+  storeName: string;
   lines: Line[];
   subtotal: number;
   fee: number;
   total: number;
   address: string;
+  lat: number;
+  lng: number;
   payment: 'cod' | 'online';
   etaMin: number;
   distKm: number;
-  otp: string;
-  partner: string;
-  /** Seconds skipped ahead with the demo control. */
-  skip: number;
+  /** The code the customer gives at the door. Only the customer is ever sent this. */
+  otp?: string;
+  status: Status;
+  partnerId: string | null;
+  partnerName: string | null;
+  /** Shops that turned this order down, so it is not offered to them again. */
+  rejectedBy: string[];
+  note?: string;
+  history: { status: Status; at: number; note?: string }[];
+  createdAt: number;
+  updatedAt: number;
 };
 
 export const STAGES = [
-  { key: 'placed', label: 'Order placed', note: 'Sent to the shop' },
+  { key: 'placed', label: 'Order placed', note: 'Waiting for the shop to accept' },
   { key: 'accepted', label: 'Shop accepted', note: 'Your items are being packed' },
   { key: 'packed', label: 'Packed', note: 'Looking for a delivery partner nearby' },
   { key: 'assigned', label: 'Partner assigned', note: 'Riding to the shop' },
@@ -31,42 +51,44 @@ export const STAGES = [
   { key: 'delivered', label: 'Delivered', note: 'Enjoy' },
 ] as const;
 
-export type StageKey = (typeof STAGES)[number]['key'];
-
-function starts(o: Order) {
-  const ride = Math.min(40, Math.max(18, o.etaMin * 1.6));
-  return [0, 7, 17, 24, 36, 36 + ride];
-}
-
-export type Progress = {
-  stage: number;
-  /** 0 to 1 through the current stage. */
-  frac: number;
-  /** Rider position: 0 to 1 is the ride to the shop, 1 to 2 is the ride to the customer. */
-  rider: number;
-  minutesLeft: number;
-  done: boolean;
+export const STATUS_LABEL: Record<Status, string> = {
+  placed: 'Waiting for the shop',
+  accepted: 'Being packed',
+  packed: 'Packed, finding a partner',
+  assigned: 'Partner on the way to the shop',
+  picked: 'On the way to you',
+  delivered: 'Delivered',
+  rejected: 'Not accepted',
+  cancelled: 'Cancelled',
 };
 
-export function progress(o: Order, now: number): Progress {
-  const t = (now - o.placedAt) / 1000 + o.skip;
-  const s = starts(o);
-  let stage = 0;
-  for (let i = 0; i < s.length; i++) if (t >= s[i]) stage = i;
-  const done = stage === s.length - 1;
-  const frac = done ? 1 : Math.min(1, (t - s[stage]) / (s[stage + 1] - s[stage]));
-  const rider = stage < 3 ? 0 : stage === 3 ? frac : stage === 4 ? 1 + frac : 2;
-  const end = s[s.length - 1];
-  const minutesLeft = done ? 0 : Math.max(1, Math.ceil(((end - t) / end) * o.etaMin));
-  return { stage, frac, rider, minutesLeft, done };
+export const stageIndex = (s: Status) => Math.max(0, STAGES.findIndex((x) => x.key === s));
+export const isActive = (s: Status) => s !== 'delivered' && s !== 'rejected' && s !== 'cancelled';
+export const isOver = (s: Status) => !isActive(s);
+
+const since = (o: Order, status: Status) => [...o.history].reverse().find((h) => h.status === status)?.at;
+
+/**
+ * Where to draw the rider on the tracking map: 0 to 1 is the ride to the shop, 1 to 2 the
+ * ride to the customer. There is no GPS yet, so this is an estimate from how long ago each
+ * step happened. It holds just short of each arrival until the real step is confirmed.
+ */
+export function riderPosition(o: Order, now: number) {
+  if (o.status === 'delivered') return 2;
+  if (o.status === 'assigned') {
+    const t = (now - (since(o, 'assigned') ?? now)) / 45_000;
+    return Math.min(0.92, Math.max(0, t));
+  }
+  if (o.status === 'picked') {
+    const ride = Math.max(45_000, o.distKm * 25_000);
+    const t = (now - (since(o, 'picked') ?? now)) / ride;
+    return 1 + Math.min(0.92, Math.max(0, t));
+  }
+  return 0;
 }
 
-/** Seconds to add to `skip` so the order jumps to the start of its next stage. */
-export function secondsToNextStage(o: Order, now: number) {
-  const t = (now - o.placedAt) / 1000 + o.skip;
-  const s = starts(o);
-  const next = s.find((x) => x > t);
-  return next === undefined ? 0 : next - t + 0.05;
+export function minutesLeft(o: Order, now: number) {
+  if (isOver(o.status)) return 0;
+  const elapsed = (now - o.createdAt) / 60_000;
+  return Math.max(1, Math.ceil(o.etaMin - elapsed));
 }
-
-export const PARTNERS = ['Ravi K.', 'Manjunath S.', 'Imran P.', 'Deepa R.', 'Suresh B.', 'Kavya N.'];

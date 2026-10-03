@@ -156,6 +156,20 @@ h3 {
   min-height: 70vh;
 }
 
+.offline {
+  background: var(--gold-t);
+  border-bottom: 1px solid var(--gold);
+  padding: 8px var(--gut);
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.track-main > .note,
+.track-main > .warn {
+  margin-bottom: 12px;
+}
+
 /* ---------- Buttons ---------- */
 
 .btn {
@@ -2202,6 +2216,11 @@ h3 {
 .status-done {
   background: var(--teal-t);
   color: var(--teal-d);
+}
+
+.status-off {
+  background: var(--paper);
+  color: var(--mute);
 }
 
 .order-acts {

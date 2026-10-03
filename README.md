@@ -1,11 +1,14 @@
-# LocalRush: customer website (front end)
+# LocalRush
 
-The customer side of LocalRush, a hyperlocal quick-commerce platform that delivers from
-existing neighbourhood shops within 5 km. Built with Next.js (App Router), React,
-TypeScript and three.js.
+A hyperlocal quick-commerce platform that delivers from existing neighbourhood shops within
+5 km. One Next.js app holds all three sides of it, plus the server:
 
-This is the front end only. There is no backend yet, so shops, stock and prices are
-sample data, and the cart, login and orders are saved in the browser.
+- **Customer website**: browse shops near you, order, and track the delivery live.
+- **Shop dashboard** (`/dashboard`): orders arrive by themselves; accept, pack, hand over; manage stock and prices.
+- **Delivery partner screen** (`/partner`): go online, take a packed order, deliver it with the customer's door code.
+- **Backend** (`/api/...`): accounts, the catalogue, stock, orders and live updates, stored in MongoDB.
+
+Built with Next.js (App Router), React, TypeScript, three.js and MongoDB.
 
 ## Run it
 
@@ -18,48 +21,160 @@ npm run dev
 
 Then open http://localhost:3000.
 
-For a production build: `npm run build`, then `npm start`.
+With nothing else set up, the server keeps its data **in memory**: everything works, and it
+resets to the sample shops when you stop the server. That is the quickest way to try it.
+
+### Run it with the real database
+
+1. Start MongoDB. With Docker Desktop running:
+
+   ```bash
+   docker run -d --name localrush-mongo -p 27017:27017 -v localrush-mongo:/data/db mongo:8.0
+   ```
+
+2. Copy `.env.example` to `.env.local` and remove the `#` in front of `MONGODB_URI`.
+3. Run `npm run dev` again.
+
+The first start fills an empty database with the sample shops, products, stock and the demo
+accounts. Open http://localhost:3000/api/health: it should say `"storage":"mongo"` and
+`"database":"connected"`. Orders and stock now survive a restart.
+
+To start again from the sample data: `docker exec localrush-mongo mongosh localrush --eval "db.dropDatabase()"`, then restart the site.
 
 Other commands:
 
 ```bash
-npm test            # unit tests for the smart store selection
+npm test            # unit tests: store selection, map maths and the whole API
 npm run typecheck   # TypeScript check without building
+npm run build       # production build; then "npm start"
 ```
 
-## What is in it
+`npm test` uses the in-memory database. To run the API tests against a real MongoDB, point
+`TEST_MONGODB_URI` at a database that may be emptied (never the one with your real data).
+In PowerShell:
 
-| Page | Address | What it does |
+```powershell
+$env:TEST_MONGODB_URI = "mongodb://localhost:27017/localrush_test"
+npm test
+Remove-Item Env:TEST_MONGODB_URI
+```
+
+The Check workflow on GitHub does this on every push, with a throwaway MongoDB.
+
+## Try all three sides at once
+
+Each person needs their own login, and a browser keeps one login at a time. So open three
+separate windows: for example a normal Chrome window, an Incognito window, and Edge.
+
+| Window | Log in with | You land on |
 |---|---|---|
-| Home | `/` | 3D map of the shops inside your 5 km circle, shops strip, categories, product shelves |
-| Category | `/c/[slug]` | Product grid with sorting and an in-stock filter |
-| Search | `/search?q=` | Results for a search; the search box also suggests as you type |
-| Product | `/p/[id]` | 3D pack you can turn, price, delivery time, every nearby shop that sells it |
-| Shops near you | `/shops` | Street map and list of every shop within 5 km, with filters |
-| Shop | `/store/[id]` | One shop's own products and prices |
-| Checkout | `/checkout` | Address, smart store selection with a live comparison, payment |
-| Orders | `/orders` | Order history, track or order again |
-| Tracking | `/orders/[id]` | 3D map with the delivery scooter, status steps, door code |
-| Login | `/login` | Name and mobile number (demo: any 4-digit code works) |
-| Account | `/account` | Name, saved addresses, log out |
+| Customer | Any name and any new 10-digit mobile number | The shop front |
+| Shop owner | The "Shop owner" button on the login page (mobile `9000000001`) | `/dashboard` |
+| Delivery partner | The "Delivery partner" button on the login page (mobile `9100000001`) | `/partner` |
+
+Any 4-digit code logs in (no SMS is sent yet). Then:
+
+1. **Partner**: switch to Online.
+2. **Customer**: keep the location on PES University, add milk and bread, check out.
+   Checkout shows which shop was picked.
+3. **Shop owner**: the order appears under New with a chime. Press Accept, then Packed and ready.
+4. **Partner**: the job appears. Take it, press "I have picked it up", then enter the 4-digit
+   code shown on the customer's tracking page.
+5. **Customer**: the tracking page moved through every step without a refresh.
+
+If checkout picked a different shop, log the shop window in as that shop's owner:
+
+| Mobile | Shop | Mobile | Shop |
+|---|---|---|---|
+| 9000000001 | Sri Lakshmi Provision Store | 9000000009 | 4th Block Pharma |
+| 9000000002 | Hosakerehalli Daily Needs | 9000000010 | Gandhi Bazaar Fruit Stall |
+| 9000000003 | Kathriguppe Fresh Mart | 9000000011 | JP Nagar Kirana Corner |
+| 9000000004 | Girinagar Medicals | 9000000012 | RR Nagar Home Needs |
+| 9000000005 | Campus Xerox & Stationery | 9000000013 | Vijayanagar Stationers & Mobiles |
+| 9000000006 | Ring Road Electronics | 9000000014 | Basavanagudi Stores |
+| 9000000007 | BSK Bakery & Sweets | 9000000015 | Koramangala Organic Co-op |
+| 9000000008 | Jayanagar Super Bazaar | | |
+
+Delivery partners are `9100000001` to `9100000004`. More things to show:
+
+- **Cannot take it** on the dashboard sends the order to the next-best shop; the customer sees a note.
+- **Stock and prices**: change a price or mark something out of stock and the customer site updates.
+- **Taking orders** switch: pause the shop and customers see it as closed until it is switched back.
+- Two partners online: the first to press "Take this delivery" gets it; the other is told it is gone.
+
+## How an order moves
+
+```
+placed ──accept──▶ accepted ──pack──▶ packed ──claim──▶ assigned ──pickup──▶ picked ──deliver──▶ delivered
+  │                                    (shop)            (partner)                    (needs door code)
+  ├─ cancel (customer) ──▶ cancelled
+  └─ reject (shop) ──▶ moved to the next-best shop, or rejected if there is none
+```
+
+- Each step is one conditional database update ("change it only if it is still in the step I
+  expect"), so two people pressing at once cannot both win.
+- Stock is taken when the order is placed and given back on cancel or reject, also with a
+  conditional update, so the last item cannot be sold twice.
+- The door code is sent only to the customer. The server checks it on delivery.
+
+## Live updates
+
+Every open page keeps one connection to `/api/live` (server-sent events). The server sends a
+short "something changed" message, and the page re-reads its data. If the connection drops,
+the browser reconnects and pages check every 5 seconds meanwhile. The Live light on the
+dashboard shows the connection state.
+
+## API
+
+All under `/api`. The login is a signed, HTTP-only cookie.
+
+| Method and path | Who | What |
+|---|---|---|
+| `GET /catalog` | everyone | Products, shops, stock and prices |
+| `POST /auth/login` | everyone | `{ name, phone, code }` |
+| `POST /auth/logout` | | |
+| `GET /me`, `PATCH /me` | logged in | Current user; change name |
+| `DELETE /me/addresses/:id` | logged in | Remove a saved address |
+| `GET /orders` | logged in | Customer: own orders. Shop: its orders. Partner: own deliveries and jobs nearby |
+| `POST /orders` | customer | Place an order: `{ cart, place, line, tag, payment, mode }` |
+| `GET /orders/:id` | logged in | One order |
+| `POST /orders/:id/:action` | by role | `accept`, `reject`, `pack` (shop); `claim`, `pickup`, `deliver` (partner); `cancel` (customer) |
+| `PUT /shop/stock` | shop owner | `{ pid, price, stock }` |
+| `POST /shop/products` | shop owner | Add a new product |
+| `PUT /shop/paused` | shop owner | `{ paused }` |
+| `PUT /partner` | partner | `{ online, place }` |
+| `GET /live` | everyone | Server-sent events |
+| `GET /health` | everyone | Version, storage mode, database state |
 
 ## Where things live
 
 ```
-app/            Pages (one folder per address) and globals.css
-components/     Shell (header, cart, search, location), product cards, scene wrappers
-scenes/         three.js scenes: radius.ts (home), pack.ts (product), track.ts (tracking)
-lib/data.ts     Sample shops, products, stock and prices
-lib/nearby.ts   Distance, opening hours, delivery time for each shop
-lib/select.ts   Smart store selection (distance, stock, price, workload, delivery time)
-lib/mapmath.ts  Map projection maths for the street map on the Shops page
-lib/orders.ts   Order stages and the demo clock
-lib/state.ts    Cart, login, addresses and orders, saved in the browser
-tests/          Unit tests (Node's built-in test runner)
-k8s/            Kubernetes manifests: namespace, deployment, service, autoscaler
-.github/        The Check and Deploy workflows (GitHub Actions)
-Dockerfile      How the site is packaged into an image
+app/                 Pages, one folder per address, and globals.css
+app/dashboard/       Shop dashboard: order board and stock
+app/partner/         Delivery partner screen
+app/api/             /api/health, and [...path] which hands every other /api call to server/api.ts
+components/          Shell (header, cart, search), StaffShell (dashboard frame), cards, map, 3D wrappers
+scenes/              three.js scenes: radius.ts (home), pack.ts (product), track.ts (tracking)
+server/api.ts        The HTTP routes
+server/service.ts    The rules: who may do what, order steps, stock
+server/memory.ts     Storage in memory (no database needed; also used by the tests)
+server/mongo.ts      Storage in MongoDB
+server/live.ts       The live stream
+server/session.ts    Login cookie
+server/seed.ts       What a new database starts with
+lib/select.ts        Smart store selection (used by the page and by the server)
+lib/nearby.ts        Distance, opening hours, delivery time for each shop
+lib/orders.ts        Order shape and steps, shared by pages and server
+lib/state.ts         What the browser holds: cart and location (saved), user and orders (from the server)
+lib/api.ts, live.ts  How pages call the server and listen for changes
+tests/               Unit tests (Node's built-in test runner)
+k8s/                 Kubernetes: namespace, database, deployment, service, autoscaler
+.github/             The Check and Deploy workflows (GitHub Actions)
+Dockerfile           How the app is packaged into an image
 ```
+
+MongoDB collections: `products`, `stores`, `inventory` (one row per shop and product, with
+price and stock), `users`, `orders`, `counters` (the change counters behind live updates).
 
 ## Smart store selection
 
@@ -70,41 +185,33 @@ Dockerfile      How the site is packaged into an image
 3. Scores each shop from 0 to 100 on distance, price, workload and delivery time.
 4. Picks the highest score. Items no single shop has go to a second shop, chosen the same way.
 
-The customer can switch between Balanced, Fastest and Cheapest at checkout, which changes
-the weights. The checkout page shows the scores side by side.
+Checkout shows the scores side by side, and the customer can switch between Balanced,
+Fastest and Cheapest. The server runs the same function again on live stock when the order
+is placed, so the page can never order something that just sold out. Workload now includes
+the orders each shop is really working on.
 
 ## Things to know when you demo it
 
-- **Opening hours are real.** Shops open and close by the clock on your computer, so late
-  at night most shops show as closed. Only Girinagar Medicals is open 24 hours.
-- **Orders run on a demo clock.** No shop or delivery partner app exists yet, so an order
-  moves through its stages on its own in about a minute. "Skip to next step" jumps ahead.
+- **Opening hours are real**, in India time. Late at night most shops are closed; only
+  Girinagar Medicals is open 24 hours. A closed shop receives no orders.
+- **Login accepts any 4-digit code.** There is no SMS provider yet.
+- **Payments are a demo.** Choosing UPI moves no money.
+- **The scooter on the tracking map is an estimate.** The steps are real (they change when the
+  shop and partner press their buttons); the position between steps is not GPS.
 - **Change location** to see different shops. Whitefield has none, to show the empty state.
-- **Nothing leaves the browser.** Clearing site data resets the cart, login and orders.
-
-## Connecting the backend later
-
-The UI reads everything through a few functions, so the backend can replace them one at a time:
-
-| Today (sample data) | Later (API) |
-|---|---|
-| `PRODUCTS`, `STORES` in `lib/data.ts` | `GET /products`, `GET /stores?lat=&lng=` |
-| `stockAt(storeId, productId)` | Inventory service |
-| `planOrder()` in `lib/select.ts` | Order service (keep the same result shape) |
-| `actions.placeOrders()` in `lib/state.ts` | `POST /orders` |
-| `progress()` in `lib/orders.ts` | Order status over Socket.IO |
 
 ## CI/CD pipeline
 
 Every push to `main` runs the Deploy workflow (`.github/workflows/cd.yml`):
 
-1. **Check** (GitHub's machine): `npm ci`, type-check, unit tests, `next build`.
+1. **Check** (GitHub's machine): `npm ci`, type-check, unit tests, the API tests again on a
+   real MongoDB, `next build`.
 2. **Package** (GitHub's machine): build the Docker image, tag it with the commit ID,
    push it to `ghcr.io`, scan it for known vulnerabilities.
-3. **Deploy** (your laptop, as a self-hosted runner): roll the image out to minikube and
-   wait until the new copies pass their health checks.
-4. **Verify**: call `/api/health` inside the cluster and confirm it reports this commit.
-   If Deploy or Verify fails, the previous version is restored automatically.
+3. **Deploy** (your laptop, as a self-hosted runner): start MongoDB in minikube if it is not
+   running, roll the new image out, and wait until the new copies pass their health checks.
+4. **Verify**: call `/api/health` inside the cluster and confirm it reports this commit and a
+   connected database. If Deploy or Verify fails, the previous version is restored.
 
 The Deploy job is off until the repository variable `DEPLOY_ENABLED` is set to `true`.
 Pull requests run the Check workflow only (`.github/workflows/ci.yml`).
@@ -115,8 +222,26 @@ To run it by hand on minikube:
 docker build -t localrush-web:local .
 minikube image load localrush-web:local
 kubectl apply -f k8s/
+kubectl rollout status deployment/mongo -n localrush --timeout=420s
+kubectl rollout restart deployment/localrush-web -n localrush
 kubectl port-forward -n localrush service/localrush-web 8080:80
 ```
+
+Then open http://localhost:8080. In the cluster the site always uses MongoDB
+(`k8s/mongo.yaml`), which is what lets two copies of the site share the same orders.
+
+Optional, to sign login cookies with your own secret instead of the built-in demo value
+(replace the text in capitals with any long random text):
+
+```bash
+kubectl create secret generic localrush-secrets -n localrush --from-literal=session-secret=LONG-RANDOM-TEXT
+kubectl rollout restart deployment/localrush-web -n localrush
+```
+
+## Not built yet
+
+Real SMS codes, real payments, GPS tracking of the partner, shop sign-up (shops and owners
+come from the seed data), and an admin view across all shops.
 
 ## Map
 

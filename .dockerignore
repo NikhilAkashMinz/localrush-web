@@ -9,3 +9,4 @@ Dockerfile
 .dockerignore
 npm-debug.log*
 *.tsbuildinfo
+.env*

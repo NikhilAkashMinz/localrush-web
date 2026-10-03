@@ -6,11 +6,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { category, PLACES, PRODUCTS, product, QUICK_NEEDS, type Place } from '@/lib/data';
 import { mins, rupee } from '@/lib/format';
 import { useNear, usePlan } from '@/lib/hooks';
+import { onLive, onLiveStatus, startLive, stopLive } from '@/lib/live';
 import { availability, shopsNear, usable } from '@/lib/nearby';
 import { DELIVERY_FEE, FREE_DELIVERY_FROM } from '@/lib/select';
 import { actions, cartCount, useStore } from '@/lib/state';
 import { BagIcon, CartIcon, CheckIcon, ChevronIcon, CloseIcon, Mark, PinIcon, SearchIcon, TargetIcon, UserIcon } from './Icons';
 import { AddButton, ProductArt, unavailableText } from './Product';
+import StaffShell from './StaffShell';
 
 /** Find products by name, keyword or category. */
 export function searchProducts(query: string) {
@@ -79,9 +81,11 @@ function Header() {
           <span>Search milk, bread, a charger…</span>
         </button>
 
-        <Link href={user ? '/account' : '/login'} className="top-link">
+        <Link href={!user ? '/login' : user.role === 'shop' ? '/dashboard' : user.role === 'partner' ? '/partner' : '/account'} className="top-link">
           <UserIcon />
-          <span>{ready && user ? user.name.split(' ')[0] : 'Log in'}</span>
+          <span>
+            {!ready || !user ? 'Log in' : user.role === 'shop' ? 'My shop' : user.role === 'partner' ? 'Deliveries' : user.name.split(' ')[0]}
+          </span>
         </Link>
 
         <button type="button" className="cart-btn" onClick={() => actions.open('cart')} aria-label={`Cart, ${count} items`}>
@@ -107,15 +111,16 @@ function Header() {
 function PlacePanel() {
   const open = useStore((s) => s.panel === 'place');
   const place = useStore((s) => s.place);
+  const tick = useStore((s) => s.tick);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEscape(open, closePanel);
 
   const counts = useMemo(
     () => PLACES.map((p) => usable(shopsNear(p.lat, p.lng)).length),
-    // Recount whenever the panel opens, in case the hour has changed.
+    // Recount whenever the panel opens, in case the hour or the shops have changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [open],
+    [open, tick],
   );
 
   if (!open) return null;
@@ -197,7 +202,9 @@ function SearchPanel() {
     }
   }, [open]);
 
-  const results = useMemo(() => searchProducts(q).slice(0, 7), [q]);
+  // `near` changes whenever a fresh catalogue arrives, so new products show up in search.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const results = useMemo(() => searchProducts(q).slice(0, 7), [q, near]);
   if (!open) return null;
 
   const go = (text: string) => {
@@ -483,30 +490,71 @@ function Footer() {
           <Link href="/shops">Shops near you</Link>
           <Link href="/orders">Your orders</Link>
           <Link href="/account">Account</Link>
+          <Link href="/login">Shop or delivery partner login</Link>
           <button type="button" onClick={() => actions.open('place')}>
             Change location
           </button>
         </nav>
         <p className="foot-note">
-          MCA capstone project, PES University. This is a front-end build with sample shops and stock: no real orders are placed.
+          MCA capstone project, PES University. The shops and stock are sample data, login accepts any 4-digit code and no money moves.
         </p>
       </div>
     </footer>
   );
 }
 
+/** Shown when the server cannot be reached and the site is running on its built-in sample data. */
+function OfflineBar() {
+  const offline = useStore((s) => s.offline);
+  if (!offline) return null;
+  return (
+    <p className="offline" role="status">
+      Cannot reach the server, so you are seeing sample shops. Orders cannot be placed until it is back.
+    </p>
+  );
+}
+
 export default function Shell({ children }: { children: React.ReactNode }) {
   const ready = useStore((s) => s.ready);
+  const userId = useStore((s) => s.user?.id ?? '');
   const path = usePathname();
+  const staff = path.startsWith('/dashboard') || path.startsWith('/partner');
 
   useEffect(() => {
-    actions.hydrate();
+    void actions.hydrate();
   }, []);
+
+  // One live connection per tab. It is reopened on login and logout, because each
+  // person follows different things: a customer their orders, a shop its counter.
+  useEffect(() => {
+    if (!ready) return;
+    const offChange = onLive((kinds) => {
+      if (kinds.includes('catalog')) void actions.refreshCatalog();
+      if (kinds.includes('orders')) void actions.refreshOrders();
+    });
+    const offStatus = onLiveStatus(actions.setLive);
+    startLive();
+    return () => {
+      offChange();
+      offStatus();
+      stopLive();
+      actions.setLive(false);
+    };
+  }, [ready, userId]);
 
   // Close any open panel and return to the top when the page changes.
   useEffect(() => {
     actions.open(null);
   }, [path]);
+
+  if (staff) {
+    return (
+      <>
+        <StaffShell>{ready ? children : <div className="boot" aria-busy="true" />}</StaffShell>
+        <Toasts />
+      </>
+    );
+  }
 
   return (
     <>
@@ -514,6 +562,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
       <Header />
+      <OfflineBar />
       <main id="main">{ready ? children : <div className="boot" aria-busy="true" />}</main>
       <Footer />
       <CartBar />

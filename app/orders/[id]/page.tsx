@@ -2,13 +2,15 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
 import { ProductArt } from '@/components/Product';
 import { CheckIcon } from '@/components/Icons';
 import { TrackMap } from '@/components/Scenes';
+import { errorText } from '@/lib/api';
 import { CATEGORIES, KIND_COLOR, product, store, type StoreKind } from '@/lib/data';
 import { km, rupee, when } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
-import { progress, STAGES } from '@/lib/orders';
+import { isOver, minutesLeft, riderPosition, stageIndex, STAGES } from '@/lib/orders';
 import { actions, useStore } from '@/lib/state';
 
 const KIND_EMOJI: Record<StoreKind, string> = {
@@ -21,19 +23,25 @@ const KIND_EMOJI: Record<StoreKind, string> = {
   bakery: '🥐',
 };
 
+const clock = (ts: number) => new Date(ts).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+
 export default function TrackPage() {
   const { id } = useParams<{ id: string }>();
+  const user = useStore((s) => s.user);
   const order = useStore((s) => s.orders).find((o) => o.id === id);
-  const now = useNow(400);
+  const now = useNow(1000);
+  const [cancelling, setCancelling] = useState(false);
 
   if (!order) {
     return (
       <div className="page">
         <div className="empty empty-page">
           <h1>We could not find that order</h1>
-          <p className="quiet">Orders are saved in this browser only, so they do not follow you to another device yet.</p>
-          <Link href="/orders" className="btn">
-            Your orders
+          <p className="quiet">
+            {user ? 'It is not among the orders on this account.' : 'Log in with the mobile number you ordered with to see it.'}
+          </p>
+          <Link href={user ? '/orders' : `/login?next=/orders/${id}`} className="btn">
+            {user ? 'Your orders' : 'Log in'}
           </Link>
         </div>
       </div>
@@ -41,13 +49,34 @@ export default function TrackPage() {
   }
 
   const shop = store(order.storeId);
-  const pr = progress(order, now);
   const kind = shop?.kind ?? 'kirana';
-  const headline = pr.done
+  const stage = stageIndex(order.status);
+  const done = order.status === 'delivered';
+  const stopped = order.status === 'cancelled' || order.status === 'rejected';
+  const left = minutesLeft(order, now);
+  const headline = done
     ? 'Delivered'
-    : pr.stage >= 4
-      ? `Arriving in about ${pr.minutesLeft} min`
-      : `On track for about ${pr.minutesLeft} min`;
+    : order.status === 'cancelled'
+      ? 'Order cancelled'
+      : order.status === 'rejected'
+        ? 'This order could not be accepted'
+        : order.status === 'placed'
+          ? 'Waiting for the shop to accept'
+          : order.status === 'picked'
+            ? `Arriving in about ${left} min`
+            : `On track for about ${left} min`;
+  const timeOf = (key: string) => [...order.history].reverse().find((h) => h.status === key)?.at;
+
+  const cancel = async () => {
+    setCancelling(true);
+    try {
+      await actions.orderAction(order.id, 'cancel');
+      actions.toast('Order cancelled');
+    } catch (e) {
+      actions.toast(errorText(e));
+    }
+    setCancelling(false);
+  };
 
   return (
     <div className="page">
@@ -62,46 +91,82 @@ export default function TrackPage() {
           <header className="track-head">
             <h1 aria-live="polite">{headline}</h1>
             <p>
-              {shop?.name} to {order.address}. {km(order.distKm)} by road.
+              {order.storeName} to {order.address}. {km(order.distKm)} by road.
             </p>
           </header>
 
-          <TrackMap rider={pr.rider} stage={pr.stage} done={pr.done} shopEmoji={KIND_EMOJI[kind]} shopColor={KIND_COLOR[kind]} />
+          {order.note && !done && <p className={stopped ? 'warn' : 'note'}>{order.note}</p>}
 
-          <div className="demo">
-            <p>
-              <b>Demo clock.</b> The shop and delivery partner apps are not built yet, so this order moves through its
-              steps on its own in about a minute.
-            </p>
-            <button type="button" className="btn btn-small btn-line" disabled={pr.done} onClick={() => actions.skipStage(order.id)}>
-              Skip to next step
-            </button>
-          </div>
+          {stopped ? (
+            <div className="demo">
+              <p>
+                {order.payment === 'online'
+                  ? 'Nothing was charged: payments are a demo in this project.'
+                  : 'You have not paid anything for this order.'}{' '}
+                The items are back on the shelf, so you can order them again.
+              </p>
+              <button
+                type="button"
+                className="btn btn-small btn-line"
+                onClick={() => {
+                  order.lines.forEach((l) => actions.add(l.pid, l.qty));
+                  actions.open('cart');
+                }}
+              >
+                Add these to the cart
+              </button>
+            </div>
+          ) : (
+            <>
+              <TrackMap
+                rider={riderPosition(order, now)}
+                stage={stage}
+                done={done}
+                shopEmoji={KIND_EMOJI[kind]}
+                shopColor={KIND_COLOR[kind]}
+              />
+              <div className="demo">
+                <p>
+                  <b>Live order.</b> Each step changes the moment the shop or the delivery partner confirms it. The
+                  scooter on the map is an estimate between those steps, not GPS.
+                </p>
+                {order.status === 'placed' && (
+                  <button type="button" className="btn btn-small btn-line" disabled={cancelling} onClick={cancel}>
+                    {cancelling ? 'Cancelling…' : 'Cancel order'}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <aside className="track-side">
-          <ol className="timeline">
-            {STAGES.map((s, i) => {
-              const state = i < pr.stage || pr.done ? 'done' : i === pr.stage ? 'now' : 'todo';
-              return (
-                <li key={s.key} className={`tl tl-${state}`}>
-                  <i>{state === 'done' ? <CheckIcon width={14} height={14} /> : null}</i>
-                  <span>
-                    <b>{s.label}</b>
-                    {state === 'now' && <small>{s.note}</small>}
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
+          {!stopped && (
+            <ol className="timeline">
+              {STAGES.map((s, i) => {
+                const state = i < stage || done ? 'done' : i === stage ? 'now' : 'todo';
+                const at = state === 'todo' ? undefined : timeOf(s.key);
+                return (
+                  <li key={s.key} className={`tl tl-${state}`}>
+                    <i>{state === 'done' ? <CheckIcon width={14} height={14} /> : null}</i>
+                    <span>
+                      <b>{s.label}</b>
+                      {state === 'now' && <small>{s.note}</small>}
+                      {state === 'done' && at && <small>{clock(at)}</small>}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
 
-          {pr.stage >= 3 && !pr.done && (
+          {order.partnerName && (order.status === 'assigned' || order.status === 'picked') && (
             <div className="partner">
               <span className="partner-face" aria-hidden>
                 🛵
               </span>
               <span>
-                <b>{order.partner}</b>
+                <b>{order.partnerName}</b>
                 <small>Your delivery partner</small>
               </span>
               <span className="otp">
@@ -138,14 +203,14 @@ export default function TrackPage() {
                 <dd>{order.fee === 0 ? 'Free' : rupee(order.fee)}</dd>
               </div>
               <div className="bill-total">
-                <dt>{order.payment === 'cod' ? 'Pay at the door' : 'Paid by UPI'}</dt>
+                <dt>{stopped ? 'Order value' : order.payment === 'cod' ? (done ? 'Paid at the door' : 'Pay at the door') : 'Paid by UPI (demo)'}</dt>
                 <dd>{rupee(order.total)}</dd>
               </div>
             </dl>
-            <p className="quiet small">Placed {when(order.placedAt)}</p>
+            <p className="quiet small">Placed {when(order.createdAt)}</p>
           </section>
 
-          {pr.done && (
+          {isOver(order.status) && (
             <Link href={`/c/${CATEGORIES[0].slug}`} className="btn btn-wide">
               Order something else
             </Link>

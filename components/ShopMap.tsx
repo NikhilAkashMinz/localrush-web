@@ -30,7 +30,7 @@ const RING_METRES = (RADIUS_KM / 1.3) * 1000;
 
 export function shopStatus(n: Near) {
   if (!n.inRange) return `${km(n.distKm)} away, outside your 5 km`;
-  if (!n.open) return `Closed, opens at ${hourLabel(n.store.open[0])}`;
+  if (!n.open) return n.store.paused ? 'Not taking orders right now' : `Closed, opens at ${hourLabel(n.store.open[0])}`;
   return `${km(n.distKm)} away, about ${mins(n.etaMin)}`;
 }
 

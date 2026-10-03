@@ -129,7 +129,7 @@ export default function HomePage() {
                     {KIND_LABEL[n.store.kind]}, {km(n.distKm)}
                   </small>
                 </span>
-                <em>{n.open ? mins(n.etaMin) : `Opens ${hourLabel(n.store.open[0])}`}</em>
+                <em>{n.open ? mins(n.etaMin) : n.store.paused ? 'Paused' : `Opens ${hourLabel(n.store.open[0])}`}</em>
               </Link>
             ))}
           </div>

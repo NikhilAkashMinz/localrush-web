@@ -1,47 +1,59 @@
 'use client';
 
-// One small client-side store, saved to the browser's localStorage.
+// One small client-side store. The cart, location and preferences are saved in this
+// browser; the user, orders and catalogue come from the server.
 // No library: React's useSyncExternalStore does the subscribing.
 
 import { useSyncExternalStore } from 'react';
-import { PLACES, type Place } from './data';
-import { PARTNERS, secondsToNextStage, type Order } from './orders';
-import type { Mode, Shipment } from './select';
+import { api, type Me } from './api';
+import { PLACES, setDataset, type Dataset, type Place, type Product } from './data';
+import type { Order } from './orders';
+import type { Mode } from './select';
 
-export type User = { name: string; phone: string };
-export type Address = { id: string; tag: string; line: string; place: Place };
 export type Toast = { id: number; text: string };
+/** A packed order a delivery partner could take, with the ride to the shop. */
+export type Job = Order & { pickupKm: number };
 
 export type State = {
   ready: boolean;
   place: Place;
   cart: Record<string, number>;
-  user: User | null;
-  addresses: Address[];
+  user: Me | null;
   orders: Order[];
+  /** Delivery partners only: packed orders nearby that nobody has taken. */
+  available: Job[];
   recent: string[];
   mode: Mode;
   panel: 'cart' | 'search' | 'place' | null;
   toasts: Toast[];
   /** Bumps each time something is added, so the cart button can react. */
   bump: number;
+  /** Goes up each time a fresh catalogue arrives, so pages recalculate. */
+  tick: number;
+  /** Whether the live connection to the server is up. */
+  live: boolean;
+  /** True when the server could not be reached and the site is showing built-in sample data. */
+  offline: boolean;
 };
 
-const KEY = 'localrush:v1';
-const SAVED: (keyof State)[] = ['place', 'cart', 'user', 'addresses', 'orders', 'recent', 'mode'];
+const KEY = 'localrush:v2';
+const SAVED: (keyof State)[] = ['place', 'cart', 'recent', 'mode'];
 
 const initial: State = {
   ready: false,
   place: PLACES[0],
   cart: {},
   user: null,
-  addresses: [],
   orders: [],
+  available: [],
   recent: [],
   mode: 'balanced',
   panel: null,
   toasts: [],
   bump: 0,
+  tick: 0,
+  live: false,
+  offline: false,
 };
 
 let state: State = initial;
@@ -86,11 +98,13 @@ export function useStore<T>(pick: (s: State) => T): T {
 export const getState = () => state;
 
 let toastId = 1;
+let started = false;
 
 export const actions = {
-  /** Load what was saved in this browser. Called once after the first render. */
-  hydrate() {
-    if (state.ready) return;
+  /** Load what was saved in this browser, then the catalogue and the logged-in user from the server. */
+  async hydrate() {
+    if (started) return;
+    started = true;
     let saved: Partial<State> = {};
     try {
       const raw = localStorage.getItem(KEY);
@@ -100,8 +114,130 @@ export const actions = {
     }
     const clean: Partial<State> = {};
     for (const k of SAVED) if (saved[k] !== undefined && saved[k] !== null) Object.assign(clean, { [k]: saved[k] });
-    state = { ...state, ...clean, ready: true };
-    emit();
+    state = { ...state, ...clean };
+    await Promise.all([actions.refreshCatalog(), actions.refreshMe()]);
+    await actions.refreshOrders();
+    set({ ready: true });
+  },
+
+  async refreshCatalog() {
+    try {
+      const data = await api<Dataset>('GET', 'catalog');
+      setDataset(data);
+      set({ tick: state.tick + 1, offline: false }, false);
+    } catch {
+      // Keep whatever catalogue we already have (the built-in sample, on a first load).
+      set({ offline: true }, false);
+    }
+  },
+
+  async refreshMe() {
+    try {
+      const { user } = await api<{ user: Me | null }>('GET', 'me');
+      set({ user }, false);
+    } catch {
+      // Stay as we are; the next action will show a clear error if the server is down.
+    }
+  },
+
+  async refreshOrders() {
+    if (!state.user) {
+      if (state.orders.length || state.available.length) set({ orders: [], available: [] }, false);
+      return;
+    }
+    try {
+      const data = await api<{ orders: Order[]; available?: Job[] }>('GET', 'orders');
+      set({ orders: data.orders, available: data.available ?? [] }, false);
+    } catch {
+      // Leave the last known list on screen.
+    }
+  },
+
+  async login(input: { name: string; phone: string; code: string }) {
+    const { user } = await api<{ user: Me }>('POST', 'auth/login', input);
+    set({ user }, false);
+    await actions.refreshOrders();
+    return user;
+  },
+
+  async logout() {
+    await api('POST', 'auth/logout').catch(() => undefined);
+    set({ user: null, orders: [], available: [] }, false);
+  },
+
+  async rename(name: string) {
+    const { user } = await api<{ user: Me }>('PATCH', 'me', { name });
+    set({ user }, false);
+  },
+
+  async deleteAddress(id: string) {
+    const { user } = await api<{ user: Me }>('DELETE', 'me/addresses/' + encodeURIComponent(id));
+    set({ user }, false);
+  },
+
+  /** Send the cart to the server, which picks the shops and creates one order per shop. */
+  async placeOrders(input: { line: string; tag: string; payment: Order['payment'] }) {
+    const result = await api<{ orders: Order[]; leftOut: string[]; user: Me | null }>('POST', 'orders', {
+      cart: state.cart,
+      place: state.place,
+      mode: state.mode,
+      ...input,
+    });
+    set({ orders: [...result.orders, ...state.orders], cart: {}, user: result.user ?? state.user });
+    void actions.refreshCatalog();
+    return result;
+  },
+
+  /** Move an order on: accept, reject, pack, claim, pickup, deliver or cancel. */
+  async orderAction(id: string, action: string, body?: unknown) {
+    try {
+      const { order } = await api<{ order: Order }>('POST', `orders/${id}/${action}`, body ?? {});
+      const known = state.orders.some((o) => o.id === id);
+      set(
+        {
+          // Keep fields only this user was sent before (the customer's door code, for one).
+          orders: known ? state.orders.map((o) => (o.id === id ? { ...o, ...order } : o)) : [order, ...state.orders],
+          available: state.available.filter((o) => o.id !== id),
+        },
+        false,
+      );
+      void actions.refreshOrders();
+      return order;
+    } catch (e) {
+      // Someone else may have moved it first: show where things really stand.
+      void actions.refreshOrders();
+      throw e;
+    }
+  },
+
+  /** Shop owners: stop or start taking orders. */
+  async setShopPaused(paused: boolean) {
+    await api('PUT', 'shop/paused', { paused });
+    await actions.refreshCatalog();
+  },
+
+  /** Shop owners: set the price and stock of one product in their shop. */
+  async saveStock(pid: string, price: number, stock: number) {
+    await api('PUT', 'shop/stock', { pid, price, stock });
+    await actions.refreshCatalog();
+  },
+
+  /** Shop owners: add a product that is not in the catalogue yet. */
+  async addProduct(input: { name: string; unit: string; cat: string; mrp: number; price: number; stock: number; emoji: string }) {
+    const { product } = await api<{ product: Product }>('POST', 'shop/products', input);
+    await actions.refreshCatalog();
+    return product;
+  },
+
+  /** Delivery partners: go online or offline, or say which area they are in. */
+  async setPartner(patch: { online?: boolean; place?: Place }) {
+    const { user } = await api<{ user: Me }>('PUT', 'partner', patch);
+    set({ user }, false);
+    await actions.refreshOrders();
+  },
+
+  setLive(live: boolean) {
+    if (state.live !== live) set({ live }, false);
   },
 
   setPlace(place: Place) {
@@ -134,24 +270,6 @@ export const actions = {
     set({ panel }, false);
   },
 
-  login(user: User) {
-    set({ user });
-  },
-
-  logout() {
-    set({ user: null });
-  },
-
-  saveAddress(a: Omit<Address, 'id'>) {
-    const address: Address = { ...a, id: 'a' + Date.now().toString(36) };
-    set({ addresses: [address, ...state.addresses] });
-    return address;
-  },
-
-  deleteAddress(id: string) {
-    set({ addresses: state.addresses.filter((a) => a.id !== id) });
-  },
-
   remember(query: string) {
     const q = query.trim();
     if (!q) return;
@@ -160,37 +278,6 @@ export const actions = {
 
   forgetRecent() {
     set({ recent: [] });
-  },
-
-  /** Turn each planned delivery into an order and empty the cart. */
-  placeOrders(shipments: Shipment[], address: string, payment: Order['payment']) {
-    const now = Date.now();
-    const created: Order[] = shipments.map((s, i) => ({
-      id: 'LR' + (now + i).toString(36).toUpperCase().slice(-6),
-      placedAt: now,
-      storeId: s.near.store.id,
-      lines: s.lines,
-      subtotal: s.subtotal,
-      fee: s.fee,
-      total: s.subtotal + s.fee,
-      address,
-      payment,
-      etaMin: s.etaMin,
-      distKm: s.near.distKm,
-      otp: String(1000 + Math.floor(Math.random() * 9000)),
-      partner: PARTNERS[Math.floor(Math.random() * PARTNERS.length)],
-      skip: 0,
-    }));
-    set({ orders: [...created, ...state.orders], cart: {} });
-    return created;
-  },
-
-  skipStage(orderId: string) {
-    set({
-      orders: state.orders.map((o) =>
-        o.id === orderId ? { ...o, skip: o.skip + secondsToNextStage(o, Date.now()) } : o,
-      ),
-    });
   },
 
   toast(text: string) {

@@ -3,11 +3,11 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { errorText } from '@/lib/api';
 import { actions, useStore } from '@/lib/state';
 
 export default function AccountPage() {
   const user = useStore((s) => s.user);
-  const addresses = useStore((s) => s.addresses);
   const orders = useStore((s) => s.orders);
   const router = useRouter();
   const [name, setName] = useState(user?.name ?? '');
@@ -18,6 +18,9 @@ export default function AccountPage() {
   }, [user, router]);
 
   if (!user) return <div className="boot" />;
+  const addresses = user.addresses;
+  const say = (text: string) => () => actions.toast(text);
+  const complain = (e: unknown) => actions.toast(errorText(e));
 
   return (
     <div className="page page-form">
@@ -28,8 +31,7 @@ export default function AccountPage() {
         onSubmit={(e) => {
           e.preventDefault();
           if (name.trim().length < 2) return;
-          actions.login({ ...user, name: name.trim() });
-          actions.toast('Name saved');
+          actions.rename(name.trim()).then(say('Name saved'), complain);
         }}
       >
         <label className="field">
@@ -60,7 +62,7 @@ export default function AccountPage() {
                     {a.line}, {a.place.label}
                   </small>
                 </span>
-                <button type="button" className="link" onClick={() => actions.deleteAddress(a.id)}>
+                <button type="button" className="link" onClick={() => actions.deleteAddress(a.id).catch(complain)}>
                   Delete
                 </button>
               </li>
@@ -68,6 +70,18 @@ export default function AccountPage() {
           </ul>
         )}
       </section>
+
+      {user.role !== 'customer' && (
+        <section className="box">
+          <h2>{user.role === 'shop' ? 'Your shop' : 'Deliveries'}</h2>
+          <p className="box-row">
+            <span>{user.role === 'shop' ? 'Orders and stock are on your shop dashboard.' : 'Jobs near you are on your delivery screen.'}</span>
+            <Link href={user.role === 'shop' ? '/dashboard' : '/partner'} className="link">
+              Open it
+            </Link>
+          </p>
+        </section>
+      )}
 
       <section className="box">
         <h2>Orders</h2>
@@ -84,9 +98,10 @@ export default function AccountPage() {
         className="btn btn-line"
         onClick={() => {
           leaving.current = true;
-          actions.logout();
-          actions.toast('Logged out');
-          router.push('/');
+          void actions.logout().then(() => {
+            actions.toast('Logged out');
+            router.push('/');
+          });
         }}
       >
         Log out

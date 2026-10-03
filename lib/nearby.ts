@@ -1,4 +1,5 @@
-import { STORES, stockAt, type Store } from './data';
+import { dataset, STORES, stockAt, type Store } from './data';
+import { hourLabel } from './format';
 import { offsetKm, RADIUS_KM, roadKm } from './geo';
 
 export type Near = {
@@ -15,14 +16,21 @@ export type Near = {
 
 export type Offer = { near: Near; price: number; stock: number };
 
-export function isOpen(s: Store, hour: number) {
-  return hour >= s.open[0] && hour < s.open[1];
+const istFormat = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
+
+/** The hour in India right now. Shop hours are Indian time wherever the server happens to run. */
+export function istHour(now: Date) {
+  return Number(istFormat.format(now)) % 24;
 }
 
-/** Shops get busier around breakfast and in the evening. */
+export function isOpen(s: Store, hour: number) {
+  return !s.paused && hour >= s.open[0] && hour < s.open[1];
+}
+
+/** Shops get busier around breakfast and in the evening, and with every order they are working on. */
 export function loadAt(s: Store, hour: number) {
   const peak = (hour >= 8 && hour < 10) || (hour >= 18 && hour < 21) ? 0.2 : 0;
-  return Math.min(1, s.load + peak);
+  return Math.min(1, s.load + peak + (s.busy ?? 0) * 0.1);
 }
 
 export function etaFor(s: Store, distKm: number, load: number) {
@@ -36,8 +44,8 @@ let cache: Near[] = [];
 
 /** Every shop, measured from the customer's location, nearest first. */
 export function shopsNear(lat: number, lng: number, now = new Date()): Near[] {
-  const hour = now.getHours();
-  const key = `${lat.toFixed(5)},${lng.toFixed(5)},${hour}`;
+  const hour = istHour(now);
+  const key = `${lat.toFixed(5)},${lng.toFixed(5)},${hour},${dataset().rev}`;
   if (key === cacheKey) return cache;
   cache = STORES.map((s) => {
     const distKm = roadKm(lat, lng, s.lat, s.lng);
@@ -71,8 +79,12 @@ export function offersFor(pid: string, near: Near[]): Offer[] {
   return out.sort((a, b) => a.near.etaMin - b.near.etaMin);
 }
 
+/** Why a shop that is not open cannot take an order right now, in a few words. */
+export const closedReason = (s: Store) => (s.paused ? 'Not taking orders right now' : `Opens at ${hourLabel(s.open[0])}`);
+
 export type Availability =
   | { state: 'available'; best: Offer; offers: Offer[]; maxQty: number }
+  /** opensAt is -1 when the only shops with stock have paused their orders. */
   | { state: 'closed'; opensAt: number }
   | { state: 'out' }
   | { state: 'none' };
@@ -84,13 +96,17 @@ export function availability(pid: string, near: Near[]): Availability {
   }
   let closedOpens = -1;
   let carried = false;
+  let pausedOnly = false;
   for (const n of near) {
     if (!n.inRange) continue;
     const st = stockAt(n.store.id, pid);
     if (!st) continue;
     carried = true;
-    if (!n.open && st.stock > 0 && (closedOpens < 0 || n.store.open[0] < closedOpens)) closedOpens = n.store.open[0];
+    if (n.open || st.stock <= 0) continue;
+    if (n.store.paused) pausedOnly = true;
+    else if (closedOpens < 0 || n.store.open[0] < closedOpens) closedOpens = n.store.open[0];
   }
   if (closedOpens >= 0) return { state: 'closed', opensAt: closedOpens };
+  if (pausedOnly) return { state: 'closed', opensAt: -1 };
   return carried ? { state: 'out' } : { state: 'none' };
 }

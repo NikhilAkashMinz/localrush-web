@@ -10,7 +10,7 @@ import { actions, useStore } from '@/lib/state';
 import { ClockIcon, MinusIcon, PlusIcon } from './Icons';
 
 export function unavailableText(a: Availability) {
-  if (a.state === 'closed') return `Shop opens at ${hourLabel(a.opensAt)}`;
+  if (a.state === 'closed') return a.opensAt < 0 ? 'Shop is not taking orders right now' : `Shop opens at ${hourLabel(a.opensAt)}`;
   if (a.state === 'out') return 'Out of stock nearby';
   if (a.state === 'none') return 'Not sold within 5 km';
   return '';

@@ -257,3 +257,17 @@
     transform: translateY(-16px);
   }
 }
+
+.lg-demo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.lg-demo p {
+  flex-basis: 100%;
+}

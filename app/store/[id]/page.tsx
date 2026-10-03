@@ -7,6 +7,7 @@ import { ProductCard } from '@/components/Product';
 import { CATEGORIES, KIND_COLOR, KIND_LABEL, PRODUCTS, stockAt } from '@/lib/data';
 import { hourLabel, km, mins } from '@/lib/format';
 import { useNear } from '@/lib/hooks';
+import { closedReason } from '@/lib/nearby';
 
 export default function StorePage() {
   const { id } = useParams<{ id: string }>();
@@ -37,7 +38,7 @@ export default function StorePage() {
   const note = !n.inRange
     ? 'Outside your 5 km'
     : !n.open
-      ? `Opens at ${hourLabel(s.open[0])}`
+      ? closedReason(s)
       : undefined;
   const hours = s.open[0] === 0 && s.open[1] === 24 ? 'Open 24 hours' : `${hourLabel(s.open[0])} to ${hourLabel(s.open[1])}`;
 
@@ -77,7 +78,9 @@ export default function StorePage() {
         <p className="note">
           {!n.inRange
             ? `This shop is ${km(n.distKm)} away by road, beyond the 5 km LocalRush delivers within. You can look, but not order from here.`
-            : `This shop is closed right now and opens at ${hourLabel(s.open[0])}.`}
+            : s.paused
+              ? 'This shop is not taking orders right now. Check back in a little while.'
+              : `This shop is closed right now and opens at ${hourLabel(s.open[0])}.`}
         </p>
       )}
 

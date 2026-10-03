@@ -85,7 +85,9 @@ export function RadiusMap({ near, seed, highlight, onSelect }: RadiusProps) {
               {!shown.inRange
                 ? `${km(shown.distKm)} away, outside your 5 km`
                 : !shown.open
-                  ? `Closed, opens at ${hourLabel(shown.store.open[0])}`
+                  ? shown.store.paused
+                    ? 'Not taking orders right now'
+                    : `Closed, opens at ${hourLabel(shown.store.open[0])}`
                   : `${km(shown.distKm)} away, about ${mins(shown.etaMin)}`}
             </span>
           </div>

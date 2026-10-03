@@ -8,6 +8,7 @@ import { product } from '@/lib/data';
 import { km, mins, rupee } from '@/lib/format';
 import { usePlan } from '@/lib/hooks';
 import { FACTOR_LABEL, MODES, WEIGHTS, type Candidate, type Factor, type Shipment } from '@/lib/select';
+import { ApiFail, errorText } from '@/lib/api';
 import { actions, useStore } from '@/lib/state';
 
 const TAGS = ['Home', 'Hostel', 'Work'];
@@ -60,16 +61,32 @@ export default function CheckoutPage() {
   const user = useStore((s) => s.user);
   const place = useStore((s) => s.place);
   const mode = useStore((s) => s.mode);
-  const addresses = useStore((s) => s.addresses);
   const router = useRouter();
 
-  const here = addresses.filter((a) => a.place.label === place.label);
+  const here = (user?.addresses ?? []).filter((a) => a.place.label === place.label);
   const [line, setLine] = useState(here[0]?.line ?? '');
   const [tag, setTag] = useState(here[0]?.tag ?? 'Home');
   const [payment, setPayment] = useState<'cod' | 'online'>('cod');
   const [upi, setUpi] = useState('');
   const [error, setError] = useState('');
   const [paying, setPaying] = useState(false);
+
+  if (user && user.role !== 'customer') {
+    return (
+      <div className="page">
+        <div className="empty empty-page">
+          <h1>This is a {user.role === 'shop' ? 'shop' : 'delivery partner'} account</h1>
+          <p className="quiet">Only customer accounts can place orders. Log out and log in with a different mobile number to shop.</p>
+          <Link href={user.role === 'shop' ? '/dashboard' : '/partner'} className="btn">
+            {user.role === 'shop' ? 'Go to your dashboard' : 'Go to your deliveries'}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // The cart empties the moment the order goes through; hold the screen until the next page opens.
+  if (plan.shipments.length === 0 && paying) return <div className="boot" aria-busy="true" />;
 
   if (plan.shipments.length === 0) {
     return (
@@ -92,24 +109,25 @@ export default function CheckoutPage() {
   const w = WEIGHTS[mode];
   const slowest = Math.max(...plan.shipments.map((s) => s.etaMin));
 
-  const place_ = () => {
+  const placeOrder = async () => {
     setError('');
     if (line.trim().length < 6) return setError('Add your flat, building and street so the delivery partner can find you.');
     if (payment === 'online' && !/^[\w.-]{2,}@[a-zA-Z]{2,}$/.test(upi.trim())) {
       return setError('Enter a UPI ID like name@bank, or choose cash on delivery.');
     }
-    const finish = () => {
-      const address = `${line.trim()}, ${place.label}`;
-      if (!here.some((a) => a.line === line.trim())) actions.saveAddress({ tag, line: line.trim(), place });
-      const created = actions.placeOrders(plan.shipments, address, payment);
-      actions.toast(created.length === 1 ? 'Order placed' : `${created.length} orders placed`);
-      router.push(created.length === 1 ? `/orders/${created[0].id}` : '/orders');
-    };
-    if (payment === 'online') {
-      setPaying(true);
-      setTimeout(finish, 1400);
-    } else {
-      finish();
+    setPaying(true);
+    try {
+      // The server chooses the shops again from live stock, so what it creates is what counts.
+      const { orders, leftOut } = await actions.placeOrders({ line: line.trim(), tag, payment });
+      const left = leftOut.length ? ` ${leftOut.length === 1 ? '1 item was' : `${leftOut.length} items were`} left out.` : '';
+      actions.toast((orders.length === 1 ? 'Order placed.' : `${orders.length} orders placed.`) + left);
+      router.push(orders.length === 1 ? `/orders/${orders[0].id}` : '/orders');
+    } catch (e) {
+      setPaying(false);
+      if (e instanceof ApiFail && e.code === 'login') return router.push('/login?next=/checkout');
+      setError(errorText(e));
+      // Stock or shop hours may have changed under us: show the latest.
+      void actions.refreshCatalog();
     }
   };
 
@@ -288,8 +306,8 @@ export default function CheckoutPage() {
           </p>
           {error && <p className="warn" role="alert">{error}</p>}
           {user ? (
-            <button type="button" className="btn btn-wide btn-big" onClick={place_} disabled={paying}>
-              <span>{paying ? 'Confirming payment…' : 'Place order'}</span>
+            <button type="button" className="btn btn-wide btn-big" onClick={placeOrder} disabled={paying}>
+              <span>{paying ? 'Placing your order…' : 'Place order'}</span>
               <b>{rupee(plan.total)}</b>
             </button>
           ) : (

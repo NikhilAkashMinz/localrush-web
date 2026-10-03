@@ -4,8 +4,15 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { Mark } from '@/components/Icons';
 import Vendors, { type Mood } from '@/components/Vendors';
+import { errorText } from '@/lib/api';
 import { actions } from '@/lib/state';
 import './login.css';
+
+// Accounts that exist in a fresh database, so the shop and delivery sides can be tried.
+const DEMO = [
+  { label: 'Shop owner', name: 'Sri Lakshmi Provision Store', phone: '9000000001' },
+  { label: 'Delivery partner', name: 'Ravi K.', phone: '9100000001' },
+];
 
 function LoginForm() {
   const router = useRouter();
@@ -20,6 +27,7 @@ function LoginForm() {
   const [error, setError] = useState('');
   const [typing, setTyping] = useState(false);
   const [flash, setFlash] = useState<'sad' | 'happy' | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -44,18 +52,35 @@ function LoginForm() {
     setStep('code');
   };
 
-  const verify = (e: React.FormEvent) => {
+  const verify = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (flash === 'happy') return;
+    if (busy || flash === 'happy') return;
     if (!/^\d{4}$/.test(code)) return fail('Enter the 4-digit code.');
     setError('');
-    setFlash('happy');
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      actions.login({ name: name.trim(), phone });
-      actions.toast(`Logged in as ${name.trim().split(' ')[0]}`);
-      router.push(next.startsWith('/') ? next : '/');
-    }, 1000);
+    setBusy(true);
+    try {
+      const user = await actions.login({ name: name.trim(), phone, code });
+      setFlash('happy');
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        actions.toast(`Logged in as ${user.name.split(' ')[0]}`);
+        // Shop owners and delivery partners go to their own screens.
+        if (user.role === 'shop') router.push('/dashboard');
+        else if (user.role === 'partner') router.push('/partner');
+        else router.push(next.startsWith('/') && !next.startsWith('//') ? next : '/');
+      }, 900);
+    } catch (err) {
+      setBusy(false);
+      fail(errorText(err));
+    }
+  };
+
+  const pickDemo = (d: (typeof DEMO)[number]) => {
+    setName(d.name);
+    setPhone(d.phone);
+    setCode('');
+    setError('');
+    setStep('code');
   };
 
   return (
@@ -94,6 +119,14 @@ function LoginForm() {
               <button type="submit" className="btn btn-wide">
                 Send code
               </button>
+              <div className="lg-demo">
+                <p className="quiet small">Trying the project? Log in as one of the demo accounts:</p>
+                {DEMO.map((d) => (
+                  <button type="button" key={d.phone} className="pill" onClick={() => pickDemo(d)}>
+                    {d.label}
+                  </button>
+                ))}
+              </div>
             </form>
           ) : (
             <form onSubmit={verify} noValidate>
@@ -109,8 +142,8 @@ function LoginForm() {
                 />
               </label>
               {error && <p className="warn" role="alert">{error}</p>}
-              <button type="submit" className="btn btn-wide" disabled={flash === 'happy'}>
-                {flash === 'happy' ? 'Logging you in…' : 'Log in'}
+              <button type="submit" className="btn btn-wide" disabled={busy}>
+                {busy ? 'Logging you in…' : 'Log in'}
               </button>
               <button
                 type="button"

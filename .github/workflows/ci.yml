@@ -1,4 +1,4 @@
-# Check: proves the code type-checks, passes its tests and builds.
+# Check: proves the code type-checks, passes its tests (in memory and on MongoDB) and builds.
 # Runs on every pull request, and is called by the Deploy workflow before it packages anything.
 name: Check
 
@@ -13,6 +13,18 @@ jobs:
   check:
     name: Type-check, test and build
     runs-on: ubuntu-latest
+    # A throwaway MongoDB that exists only while this job runs, so the API tests can also
+    # be run against the real database and not just the in-memory one.
+    services:
+      mongo:
+        image: mongo:8.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
 
@@ -30,6 +42,12 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      # The same API tests again, this time with everything stored in MongoDB.
+      - name: API tests against MongoDB
+        run: npx tsx --test tests/api.test.ts
+        env:
+          TEST_MONGODB_URI: mongodb://localhost:27017/localrush_test
 
       - name: Build
         run: npm run build

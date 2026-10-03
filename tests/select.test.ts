@@ -14,9 +14,9 @@ const place = (label: string) => {
   return p;
 };
 
-// Fixed clock times, so opening hours do not make the tests depend on when they run.
-const MIDDAY = new Date(2026, 0, 5, 11, 0);
-const NIGHT = new Date(2026, 0, 5, 2, 0);
+// Fixed Indian clock times, so the tests do not depend on when or where they run.
+const MIDDAY = new Date('2026-01-05T11:00:00+05:30');
+const NIGHT = new Date('2026-01-05T02:00:00+05:30');
 
 const pes = place('PES University');
 const nearAt = (when: Date, p = pes) => shopsNear(p.lat, p.lng, when);
