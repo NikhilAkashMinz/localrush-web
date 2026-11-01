@@ -7,6 +7,9 @@ export type Role = 'customer' | 'shop' | 'partner';
 
 export type Address = { id: string; tag: string; line: string; place: Place };
 
+/** One GPS position on a delivery partner's way, and when it was taken. */
+export type TrailPoint = { lat: number; lng: number; at: number };
+
 export type User = {
   id: string;
   name: string;
@@ -17,6 +20,16 @@ export type User = {
   /** Delivery partners: whether they are taking deliveries, and roughly where they are. */
   online?: boolean;
   place?: Place;
+  /**
+   * Delivery partners: when `place` last came from their phone's GPS. Not set when they chose
+   * an area from the list instead. The customer is shown a GPS position only while it is fresh.
+   */
+  gpsAt?: number;
+  /**
+   * Delivery partners: the GPS positions of the delivery under way, oldest first, so the
+   * customer's map can draw the way the partner has come. Cleared when no delivery is under way.
+   */
+  trail?: TrailPoint[];
   addresses: Address[];
   createdAt: number;
 };
@@ -70,4 +83,11 @@ export interface Repo {
   /** Counters that go up whenever something on a channel changes; the live stream watches them. */
   bump(channels: string[]): Promise<void>;
   versions(channels: string[]): Promise<number[]>;
+
+  /**
+   * A saved copy of something slow to fetch from elsewhere (real shops from OpenStreetMap),
+   * with when it was fetched. Kept in the database so it survives a restart.
+   */
+  getCached<T>(key: string): Promise<{ at: number; value: T } | null>;
+  putCached<T>(key: string, value: T, at: number): Promise<void>;
 }

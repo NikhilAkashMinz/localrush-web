@@ -1,7 +1,8 @@
-// The live stream (server-sent events). A browser keeps one connection open to /api/live;
-// whenever something it cares about changes, the server sends a short message and the page
-// re-reads the data. The stream only says "something changed", so a missed message can
-// never leave a page showing wrong data for long.
+// The live stream (server-sent events). Each open page of the website, and each phone app
+// (partner-app/ and vendor-app/, which log in with a token), keeps one connection open to
+// /api/live; whenever something it cares about changes, the server sends a short message and
+// the page or app re-reads the data. The stream only says "something changed", so a missed
+// message can never leave a page showing wrong data for long.
 
 import type { Repo, User } from './types';
 

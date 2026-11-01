@@ -2,6 +2,7 @@
 
 // A small street map built for LocalRush: OpenStreetMap tiles underneath, with our own
 // markers, 5 km ring and popup on top. No map library; the maths is in lib/mapmath.ts.
+// LocalRush shops are pins; other real shops from OpenStreetMap are small dots beneath them.
 
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -10,6 +11,7 @@ import { hourLabel, km, mins } from '@/lib/format';
 import { RADIUS_KM } from '@/lib/geo';
 import { metresPerPixel, project, tilesFor, unproject } from '@/lib/mapmath';
 import type { Near } from '@/lib/nearby';
+import { directionsUrl, type RealShop } from '@/lib/realshops';
 import { MinusIcon, PlusIcon, TargetIcon } from './Icons';
 
 export const KIND_EMOJI: Record<StoreKind, string> = {
@@ -37,13 +39,16 @@ export function shopStatus(n: Near) {
 type Props = {
   place: Place;
   shops: Near[];
+  /** Real shops that are not on LocalRush, from OpenStreetMap. */
+  real?: RealShop[];
+  /** A LocalRush shop id or a real shop id. */
   selected: string | null;
   hovered: string | null;
   onSelect: (id: string | null) => void;
   onHover: (id: string | null) => void;
 };
 
-export default function ShopMap({ place, shops, selected, hovered, onSelect, onHover }: Props) {
+export default function ShopMap({ place, shops, real = [], selected, hovered, onSelect, onHover }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [zoom, setZoom] = useState(START_ZOOM);
@@ -78,16 +83,16 @@ export default function ShopMap({ place, shops, selected, hovered, onSelect, onH
   // When a shop is picked, or the zoom changes, keep it in view with room for its popup above.
   useEffect(() => {
     if (!selected || !size.w) return;
-    const n = shops.find((s) => s.store.id === selected);
+    const n = shops.find((s) => s.store.id === selected)?.store ?? real.find((s) => s.id === selected);
     if (!n) return;
-    const p = project(n.store.lat, n.store.lng, zoom);
+    const p = project(n.lat, n.lng, zoom);
     const x = p.x - left;
     const y = p.y - top;
     const comfortable = x > 90 && x < size.w - 90 && y > 190 && y < size.h - 30;
     if (!comfortable) setCentre(unproject(p.x, p.y - size.h * 0.12, zoom));
-    // Only react to a new selection or zoom level, not to every pan.
+    // Only react to a new selection or zoom level (or a real shop arriving), not to every pan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, zoom]);
+  }, [selected, zoom, real.length > 0]);
 
   const tiles = useMemo(
     () => (size.w ? tilesFor(left, top, size.w, size.h, zoom) : []),
@@ -97,6 +102,8 @@ export default function ShopMap({ place, shops, selected, hovered, onSelect, onH
   const you = at(place.lat, place.lng);
   const ring = (RING_METRES / metresPerPixel(place.lat, zoom)) * 2;
   const picked = shops.find((s) => s.store.id === selected);
+  const pickedReal = picked ? undefined : real.find((s) => s.id === selected);
+  const offMap = (p: { x: number; y: number }) => p.x < -40 || p.y < -40 || p.x > size.w + 40 || p.y > size.h + 60;
 
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('button, a')) return;
@@ -155,9 +162,32 @@ export default function ShopMap({ place, shops, selected, hovered, onSelect, onH
         <i />
       </div>
 
+      {real.map((s) => {
+        const p = at(s.lat, s.lng);
+        if (offMap(p)) return null;
+        const active = s.id === selected || s.id === hovered;
+        return (
+          <button
+            key={s.id}
+            type="button"
+            className={`sm-dot ${active ? 'on' : ''}`}
+            style={{ left: p.x, top: p.y, ['--pin' as string]: s.kind ? KIND_COLOR[s.kind] : '#5f5c73' }}
+            onClick={() => onSelect(s.id === selected ? null : s.id)}
+            onPointerEnter={() => onHover(s.id)}
+            onPointerLeave={() => onHover(null)}
+            onFocus={() => onHover(s.id)}
+            onBlur={() => onHover(null)}
+            aria-label={`${s.name}, ${s.typeLabel}, ${km(s.distKm)} away. Not on LocalRush.`}
+            aria-pressed={s.id === selected}
+          >
+            {active && <span aria-hidden>{s.kind ? KIND_EMOJI[s.kind] : '🏪'}</span>}
+          </button>
+        );
+      })}
+
       {shops.map((n) => {
         const p = at(n.store.lat, n.store.lng);
-        if (p.x < -40 || p.y < -40 || p.x > size.w + 40 || p.y > size.h + 60) return null;
+        if (offMap(p)) return null;
         const id = n.store.id;
         const state = !n.inRange ? 'far' : n.open ? 'open' : 'closed';
         const active = id === selected || id === hovered;
@@ -195,6 +225,25 @@ export default function ShopMap({ place, shops, selected, hovered, onSelect, onH
           );
         })()}
 
+      {pickedReal &&
+        (() => {
+          const p = at(pickedReal.lat, pickedReal.lng);
+          return (
+            <div className="sm-pop sm-pop-real" style={{ left: p.x, top: p.y }}>
+              <small className="sm-tag">Not on LocalRush</small>
+              <b>{pickedReal.name}</b>
+              <span>
+                {pickedReal.typeLabel}, {km(pickedReal.distKm)} away
+              </span>
+              {pickedReal.address && <span>{pickedReal.address}</span>}
+              {pickedReal.hours && <span>Hours: {pickedReal.hours}</span>}
+              <a href={directionsUrl(pickedReal)} target="_blank" rel="noreferrer" className="btn btn-small btn-line">
+                Directions
+              </a>
+            </div>
+          );
+        })()}
+
       <div className="sm-tools">
         <button type="button" onClick={() => zoomBy(1)} disabled={zoom >= MAX_ZOOM} aria-label="Zoom in">
           <PlusIcon width={18} height={18} />
@@ -216,6 +265,11 @@ export default function ShopMap({ place, shops, selected, hovered, onSelect, onH
 
       <p className="sm-key">
         <i /> 5 km by road from you
+        {real.length > 0 && (
+          <>
+            <b className="sm-key-dot" /> other real shops
+          </>
+        )}
       </p>
       <a className="sm-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
         © OpenStreetMap contributors

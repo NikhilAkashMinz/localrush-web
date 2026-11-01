@@ -1,7 +1,7 @@
 // The MongoDB database. Used when MONGODB_URI is set, for example:
 //   MONGODB_URI=mongodb://localhost:27017/localrush
 //
-// Collections: products, stores, inventory, users, orders, counters.
+// Collections: products, stores, inventory, users, orders, counters, cache.
 // The two operations that must never race (taking stock, claiming a delivery) are each a
 // single conditional update, so the database itself decides who wins.
 
@@ -15,6 +15,7 @@ import type { OrderFilter, Repo, User } from './types';
 type WithId<T> = T & { _id: string };
 type InventoryDoc = { _id: string; storeId: string; productId: string; price: number; stock: number };
 type CounterDoc = { _id: string; v: number };
+type CacheDoc = { _id: string; at: number; value: unknown };
 
 function strip<T>(doc: WithId<T> | null): T | null {
   if (!doc) return null;
@@ -74,6 +75,8 @@ export async function createMongoRepo(uri: string, options: { reset?: boolean } 
   const users: Collection<WithId<User>> = db.collection('users');
   const orders: Collection<WithId<Order>> = db.collection('orders');
   const counters: Collection<CounterDoc> = db.collection('counters');
+  // Saved copies of slow outside lookups, such as real shops from OpenStreetMap, one per area.
+  const cache: Collection<CacheDoc> = db.collection('cache');
 
   // One index per question the site asks. Creating an index that exists is a no-op, so a
   // database from an older version simply gains the new ones on the next start.
@@ -187,6 +190,14 @@ export async function createMongoRepo(uri: string, options: { reset?: boolean } 
       const docs = await counters.find({ _id: { $in: channels } }).toArray();
       const byId = new Map(docs.map((d) => [d._id, d.v]));
       return channels.map((c) => byId.get(c) ?? 0);
+    },
+
+    async getCached<T>(key: string) {
+      const doc = await cache.findOne({ _id: key });
+      return doc ? { at: doc.at, value: doc.value as T } : null;
+    },
+    async putCached(key, value, at) {
+      await cache.replaceOne({ _id: key }, { at, value }, { upsert: true });
     },
   };
 }

@@ -10,3 +10,6 @@ Dockerfile
 npm-debug.log*
 *.tsbuildinfo
 .env*
+partner-app
+vendor-app
+scripts

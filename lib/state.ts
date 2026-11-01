@@ -266,7 +266,8 @@ export const actions = {
   },
 
   /** Delivery partners: go online or offline, or say which area they are in. */
-  async setPartner(patch: { online?: boolean; place?: Place }) {
+  /** `gps: true` marks a place that came from the device's location rather than the area list. */
+  async setPartner(patch: { online?: boolean; place?: Place; gps?: boolean }) {
     const { user } = await api<{ user: Me }>('PUT', 'partner', patch);
     set({ user }, false);
     await actions.refreshOrders();

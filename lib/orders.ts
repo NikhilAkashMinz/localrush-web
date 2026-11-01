@@ -5,6 +5,7 @@
 // and at what price, which shop sold it, and what the delivery partner was paid.
 
 import { product } from './data';
+import { crow } from './geo';
 import type { Line } from './select';
 
 /**
@@ -55,6 +56,12 @@ export type Order = {
    */
   partnerPay?: number;
   deliveredAt?: number;
+  /**
+   * Where the delivery partner is, from their phone's GPS, while the order is on its way, and
+   * the way they have come since taking it (`trail`, oldest first). Only the customer's view of
+   * an order has it, and only while the position is fresh. It is never stored with the order.
+   */
+  rider?: { lat: number; lng: number; at: number; trail?: { lat: number; lng: number; at: number }[] };
   /** Shops that turned this order down, so it is not offered to them again. */
   rejectedBy: string[];
   note?: string;
@@ -106,6 +113,23 @@ export function riderPosition(o: Order, now: number) {
     return 1 + Math.min(0.92, Math.max(0, t));
   }
   return 0;
+}
+
+/** How long a GPS position from the partner's phone is shown to the customer before it counts as stale. */
+export const RIDER_FRESH_MS = 10 * 60_000;
+
+/**
+ * Where to draw the rider when the partner's phone is sharing GPS (the LocalRush Partner app):
+ * on the ride to the customer, how much of the shop-to-customer distance is already covered.
+ * Without GPS, or before pick-up, it is the estimate from `riderPosition`.
+ */
+export function liveRiderPosition(o: Order, now: number, shop?: { lat: number; lng: number }) {
+  const estimate = riderPosition(o, now);
+  if (!o.rider || !shop || o.status !== 'picked') return estimate;
+  const whole = crow(shop.lat, shop.lng, o.lat, o.lng);
+  if (whole < 0.05) return estimate;
+  const left = crow(o.rider.lat, o.rider.lng, o.lat, o.lng);
+  return 1 + Math.min(0.97, Math.max(0, 1 - left / whole));
 }
 
 export function minutesLeft(o: Order, now: number) {

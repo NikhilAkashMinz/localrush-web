@@ -719,6 +719,159 @@ h3 {
   pointer-events: none;
 }
 
+/* ---------- Google's real 3D map (components/RealMap.tsx) ---------- */
+
+.hero-map-real {
+  height: 400px;
+  background: #0a2f2d;
+}
+
+@media (min-width: 900px) {
+  .hero-map-real {
+    height: auto;
+  }
+}
+
+.rm,
+.rm-host,
+.rm-host > gmp-map-3d {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.rm-wait {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+  pointer-events: none;
+}
+
+/* Top left, so Google's logo and attribution at the bottom always stay visible. */
+.rm-legend {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.rm-legend > span,
+.rm-legend button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(7, 63, 61, 0.86);
+  color: #fff;
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.rm-legend button {
+  pointer-events: auto;
+  margin-left: auto;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.rm-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.rm-dot-lr {
+  background: var(--teal);
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.rm-dot-g {
+  background: #fff;
+  box-shadow: inset 0 0 0 2px var(--mute);
+}
+
+.rm-card {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 44px;
+  max-width: 340px;
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 16px;
+  padding: 12px 40px 14px 14px;
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  font-size: 13.5px;
+  line-height: 1.4;
+  box-shadow: 0 12px 30px rgba(3, 30, 29, 0.4);
+}
+
+.rm-card b {
+  font-size: 16px;
+}
+
+.rm-card > span {
+  color: var(--mute);
+}
+
+.rm-card .btn {
+  margin-top: 8px;
+}
+
+.rm-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--mute);
+}
+
+.rm-close:hover {
+  background: var(--paper);
+}
+
+.rm-tag {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--teal-d);
+  background: var(--teal-t);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.rm-tag-g {
+  color: var(--mute);
+  background: var(--paper);
+}
+
+.rm-card .rm-note {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.map-note {
+  margin-top: 12px;
+}
+
 /* ---------- Home: shops, categories, shelves ---------- */
 
 .shops {
@@ -794,6 +947,23 @@ h3 {
 
 .shop-closed i {
   opacity: 0.4;
+}
+
+/* A shop from Google Maps: not orderable, so plainer, and round where LocalRush's are square. */
+.shop-real {
+  text-align: left;
+}
+
+.shop-real i {
+  border-radius: 50%;
+}
+
+.shop-real em {
+  font-size: 16px;
+}
+
+.shop-real.on {
+  box-shadow: inset 0 0 0 2px var(--teal);
 }
 
 .cats {
@@ -2436,6 +2606,12 @@ h3 {
 .partner small {
   color: var(--mute);
   font-size: 12.5px;
+}
+
+.partner small.partner-live {
+  color: var(--teal);
+  font-weight: 600;
+  margin-top: 2px;
 }
 
 .otp {

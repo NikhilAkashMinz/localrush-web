@@ -1,0 +1,346 @@
+/* The live map on the order tracking page (components/LiveTrackMap.tsx). */
+
+.lm-map {
+  position: relative;
+  height: 360px;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--line);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  /* Shown while tiles load, or if they cannot load at all. */
+  background-color: #e8eef5;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.7) 2px, transparent 2px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.7) 2px, transparent 2px);
+  background-size: 64px 64px;
+}
+
+.lm-map:active {
+  cursor: grabbing;
+}
+
+@media (min-width: 960px) {
+  .lm-map {
+    height: 460px;
+  }
+}
+
+.lm-tiles {
+  position: absolute;
+  inset: 0;
+  /* Quieten the street map so the route and the scooter stand out. */
+  filter: grayscale(0.8) contrast(0.92) brightness(1.05);
+}
+
+.lm-tiles img {
+  position: absolute;
+  width: 256px;
+  height: 256px;
+  max-width: none;
+  pointer-events: none;
+}
+
+.lm-tint {
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 122, 117, 0.07);
+  pointer-events: none;
+}
+
+.lm-lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.lm-lines polyline {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The way still to go. */
+.lm-ahead {
+  stroke: var(--deep);
+  stroke-width: 3.5;
+  stroke-dasharray: 2 9;
+  opacity: 0.55;
+}
+
+/* The way the partner has come, from their phone's GPS. */
+.lm-behind {
+  stroke: var(--teal);
+  stroke-width: 6;
+  filter: drop-shadow(0 1px 2px rgba(7, 63, 61, 0.35));
+}
+
+/* The shop: a pin in the colour of its kind. */
+.lm-shop {
+  position: absolute;
+  width: 38px;
+  height: 38px;
+  margin: -46px 0 0 -19px;
+  border-radius: 50% 50% 50% 4px;
+  transform: rotate(-45deg);
+  transform-origin: 50% 100%;
+  background: var(--pin);
+  box-shadow: 0 0 0 2.5px #fff, 0 6px 14px rgba(23, 20, 43, 0.3);
+  display: grid;
+  place-items: center;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.lm-shop span {
+  transform: rotate(45deg);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  line-height: 1;
+  font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+}
+
+/* The customer's address. */
+.lm-home {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: grid;
+  justify-items: center;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.lm-home span {
+  background: var(--ink);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 999px;
+  transition: opacity 0.3s;
+}
+
+/* The scooter is at the door and covers the label. */
+.lm-home-near span {
+  opacity: 0;
+}
+
+.lm-home i {
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  margin-bottom: -7px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 3px #fff, 0 0 0 9px rgba(217, 54, 54, 0.22);
+}
+
+/* The delivery partner. */
+.lm-rider {
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--teal), 0 6px 16px rgba(7, 63, 61, 0.35);
+  display: grid;
+  place-items: center;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.lm-rider span {
+  font-size: 24px;
+  line-height: 1;
+  font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+  position: relative;
+}
+
+/* While the position is live, a ring keeps spreading out from the scooter. */
+.lm-rider.lm-live::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 3px solid var(--teal);
+  animation: lm-ping 1.6s ease-out infinite;
+}
+
+@keyframes lm-ping {
+  from {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+/* An old position, or an estimate when the phone is not sharing GPS. */
+.lm-rider:not(.lm-live) {
+  box-shadow: 0 0 0 3px #9aa1b2, 0 6px 16px rgba(23, 20, 43, 0.25);
+}
+
+.lm-rider.lm-guess {
+  opacity: 0.8;
+}
+
+/* Which way the partner is heading: a pointer on the ring, turned to face it. */
+.lm-heading {
+  position: absolute;
+  inset: -12px;
+  pointer-events: none;
+}
+
+.lm-heading::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  margin-left: -7px;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 11px solid var(--teal);
+}
+
+.lm-rider:not(.lm-live) .lm-heading::before {
+  border-bottom-color: #9aa1b2;
+}
+
+.lm-tools {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  gap: 6px;
+  z-index: 6;
+}
+
+.lm-tools button {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 8px rgba(23, 20, 43, 0.18);
+}
+
+.lm-tools button:disabled {
+  opacity: 0.45;
+}
+
+.lm-tools button[aria-pressed='true'] {
+  color: var(--teal);
+}
+
+/* Who is where, at the bottom of the map. */
+.lm-info {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 6;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 16px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 16px rgba(23, 20, 43, 0.18);
+  display: grid;
+  gap: 2px;
+  cursor: default;
+}
+
+@media (min-width: 640px) {
+  .lm-info {
+    right: auto;
+    max-width: 440px;
+  }
+}
+
+.lm-info p {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.lm-info small {
+  color: var(--mute);
+  font-size: 13px;
+}
+
+.lm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--teal-t);
+  color: var(--teal-d);
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
+}
+
+.lm-badge i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #16a34a;
+  animation: beat 1.2s ease-in-out infinite;
+}
+
+.lm-badge-off {
+  background: var(--paper);
+  color: var(--mute);
+}
+
+.lm-badge-off i {
+  background: #9aa1b2;
+  animation: none;
+}
+
+.lm-credit {
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  z-index: 5;
+  font-size: 10.5px;
+  color: var(--mute);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 1px 6px;
+  border-radius: 6px 6px 0 0;
+}
+
+@media (max-width: 639px) {
+  /* On a phone the card spans the map, so the credit sits at the top instead. */
+  .lm-credit {
+    top: 0;
+    bottom: auto;
+    left: 8px;
+    right: auto;
+    border-radius: 0 0 6px 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lm-rider.lm-live::before,
+  .lm-badge i {
+    animation: none;
+  }
+}
+
+/* The switch between the live map and the 3D view. */
+.track-views {
+  margin-bottom: 10px;
+}

@@ -3,6 +3,7 @@
 //
 //   GET    /api/catalog                    everyone       products, shops, stock
 //   GET    /api/demo                       everyone       the ready-made demo accounts
+//   GET    /api/nearby-shops?lat=&lng=     everyone       real shops within 5 km, from OpenStreetMap
 //   POST   /api/auth/login                 everyone       { name, phone, code }, for this seat's kind of account
 //   POST   /api/auth/logout
 //   GET    /api/me                         everyone       the logged-in user, or null
@@ -16,19 +17,24 @@
 //   POST   /api/shop/products              shop owner     add a new product
 //   PUT    /api/shop/paused                shop owner     { paused }
 //   GET    /api/shop/sales?period=         shop owner     what the shop sold, with prices
-//   PUT    /api/partner                    partner        { online, place }
+//   PUT    /api/partner                    partner        { online, place, gps }
 //   GET    /api/partner/earnings?period=   partner        what the partner earned
 //   GET    /api/live                       everyone       server-sent events
 //
 // Every request names its "seat" (customer, shop or partner) in the X-LocalRush-Seat header;
 // each seat has its own login cookie. See server/session.ts.
+//
+// The phone apps use the same API: partner-app/ for delivery partners and vendor-app/ for shop
+// owners. They send "X-LocalRush-Client: app" when logging in, get a token back instead of a
+// cookie, and then send "Authorization: Bearer <token>" with every request.
 
 import { channelsFor, liveResponse } from './live';
+import { realShopsNear } from './osm';
 import { getRepo } from './repo';
 import { seedUsers } from './seed';
 import * as service from './service';
 import { ApiError } from './service';
-import { clearCookie, readSession, seatOf, sessionCookie, type Seat } from './session';
+import { clearCookie, readSession, seatOf, sessionCookie, sessionToken, type Seat } from './session';
 import type { Repo, User } from './types';
 
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -82,8 +88,22 @@ export async function handle(request: Request): Promise<Response> {
           accounts: seedUsers().map((u) => ({ role: u.role, name: u.name.replace(' (owner)', ''), phone: u.phone, storeId: u.storeId })),
         });
 
+      case 'GET nearby-shops': {
+        const lat = Number(url.searchParams.get('lat'));
+        const lng = Number(url.searchParams.get('lng'));
+        if (!url.searchParams.get('lat') || !url.searchParams.get('lng') || !(Math.abs(lat) <= 90) || !(Math.abs(lng) <= 180)) {
+          throw new ApiError(400, 'Give a location as lat and lng.');
+        }
+        return json({ shops: await realShopsNear(lat, lng), source: 'OpenStreetMap' });
+      }
+
       case 'POST auth/login': {
         const who = await service.login(repo, await body(request), seat);
+        // The phone app keeps a token instead of a cookie. Browsers never get one in the reply,
+        // so a script on a page cannot read a login the way it could read a token.
+        if (request.headers.get('x-localrush-client') === 'app') {
+          return json({ user: service.publicUser(who), token: sessionToken(who.id, who.role) });
+        }
         return json({ user: service.publicUser(who) }, 200, { 'Set-Cookie': sessionCookie(who.id, who.role) });
       }
       case 'POST auth/logout':

@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "LocalRush Vendor",
+    "slug": "localrush-vendor",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F3F5F9",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.localrush.vendor"
+    },
+    "android": {
+      "package": "com.localrush.vendor",
+      "adaptiveIcon": {
+        "backgroundColor": "#073F3D",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "VIBRATE"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
+  }
+}

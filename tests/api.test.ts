@@ -13,6 +13,7 @@ import { SAMPLE } from '../lib/sample';
 import { handle } from '../server/api';
 import { clock } from '../server/clock';
 import { createMongoRepo } from '../server/mongo';
+import { useOverpass, type OsmElement } from '../server/osm';
 import { useFreshMemoryRepo, useRepo } from '../server/repo';
 import { ownerPhone, partnerPhone } from '../server/seed';
 import type { Repo } from '../server/types';
@@ -33,7 +34,9 @@ afterEach(() => repo.close());
 
 type Reply<T = any> = { status: number; data: T; cookie: string };
 
-async function call<T = any>(method: string, path: string, opts: { as?: string; body?: unknown; seat?: string; from?: string } = {}): Promise<Reply<T>> {
+type CallOptions = { as?: string; body?: unknown; seat?: string; from?: string; bearer?: string; app?: boolean };
+
+async function call<T = any>(method: string, path: string, opts: CallOptions = {}): Promise<Reply<T>> {
   const response = await handle(
     new Request('http://test.local/api/' + path, {
       method,
@@ -44,6 +47,9 @@ async function call<T = any>(method: string, path: string, opts: { as?: string; 
         ...(opts.as ? { cookie: opts.as, 'x-localrush-seat': /^lr_(\w+)=/.exec(opts.as)?.[1] ?? 'customer' } : {}),
         ...(opts.seat ? { 'x-localrush-seat': opts.seat } : {}),
         ...(opts.from ? { referer: 'http://test.local' + opts.from } : {}),
+        // Like the phone apps: a token instead of a cookie, and "app" when logging in.
+        ...(opts.bearer ? { authorization: 'Bearer ' + opts.bearer } : {}),
+        ...(opts.app ? { 'x-localrush-client': 'app' } : {}),
       },
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     }),
@@ -535,8 +541,376 @@ test('the live stream tells a customer when their order moves on', async () => {
   }
 });
 
+test('real shops nearby come from OpenStreetMap, nearest first, asked for once per area', async () => {
+  const queries: string[] = [];
+  const near = (dLat: number) => PES.lat + dLat;
+  useOverpass(async (q): Promise<OsmElement[]> => {
+    queries.push(q);
+    return [
+      { type: 'node', id: 1, lat: near(0.01), lon: PES.lng, tags: { shop: 'supermarket', name: 'More', 'addr:street': '80 Feet Road' } },
+      { type: 'way', id: 2, center: { lat: near(0.002), lon: PES.lng }, tags: { amenity: 'pharmacy', name: 'Apollo Pharmacy', opening_hours: '24/7' } },
+      { type: 'node', id: 3, lat: near(0.001), lon: PES.lng, tags: { shop: 'bakery' } },
+      { type: 'node', id: 4, lat: near(0.001), lon: PES.lng, tags: { shop: 'jewelry', name: 'Not what we sell' } },
+      { type: 'node', id: 5, lat: near(0.2), lon: PES.lng, tags: { shop: 'convenience', name: 'Too far away' } },
+    ];
+  });
+
+  const r = await call('GET', `nearby-shops?lat=${PES.lat}&lng=${PES.lng}`);
+  assert.equal(r.status, 200);
+  assert.deepEqual(
+    r.data.shops.map((s: { id: string; name: string; kind: string }) => [s.id, s.name, s.kind]),
+    [
+      ['osm-w2', 'Apollo Pharmacy', 'pharmacy'],
+      ['osm-n1', 'More', 'supermarket'],
+    ],
+    'named shops of our kinds within 5 km, nearest first',
+  );
+  assert.equal(r.data.shops[0].hours, '24/7');
+  assert.equal(r.data.shops[1].address, '80 Feet Road');
+
+  // A few hundred metres away, in the same area: no second search, and only the area's middle was sent.
+  await call('GET', `nearby-shops?lat=${PES.lat - 0.003}&lng=${PES.lng}`);
+  assert.equal(queries.length, 1);
+  assert.ok(!queries[0].includes(String(PES.lat)), 'the exact location never leaves the server');
+
+  // The answer is saved in the database, so after a restart the area shows without asking again.
+  useOverpass(async () => {
+    throw new Error('should not be asked: the area is saved');
+  });
+  const afterRestart = await call('GET', `nearby-shops?lat=${PES.lat}&lng=${PES.lng}`);
+  assert.equal(afterRestart.status, 200);
+  assert.equal(afterRestart.data.shops.length, 2);
+
+  assert.equal((await call('GET', 'nearby-shops?lat=abc&lng=77.5')).status, 400);
+  assert.equal((await call('GET', 'nearby-shops')).status, 400);
+});
+
+test('when OpenStreetMap cannot be reached, the error is clear and the next visit tries again', async () => {
+  let fail = true;
+  useOverpass(async (): Promise<OsmElement[]> => {
+    if (fail) throw new Error('timed out');
+    return [{ type: 'node', id: 9, lat: PES.lat, lon: PES.lng, tags: { shop: 'convenience', name: 'Corner Store' } }];
+  });
+  const down = await call('GET', `nearby-shops?lat=${PES.lat}&lng=${PES.lng}`);
+  assert.equal(down.status, 503);
+  assert.equal(down.data.code, 'osm');
+  fail = false;
+  const up = await call('GET', `nearby-shops?lat=${PES.lat}&lng=${PES.lng}`);
+  assert.equal(up.data.shops[0].name, 'Corner Store');
+});
+
 test('unknown addresses and bad JSON get clear errors', async () => {
   assert.equal((await call('GET', 'nothing-here')).status, 404);
   const response = await handle(new Request('http://test.local/api/auth/login', { method: 'POST', body: '{not json' }));
   assert.equal(response.status, 400);
+});
+
+// ---------- The delivery partner phone app ----------
+
+/** Log in the way the phone app does, and return its token. */
+async function appLogin(phone: string) {
+  const r = await call<{ user: { role: string }; token: string }>('POST', 'auth/login', { seat: 'partner', app: true, body: { phone, code: '4321' } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.cookie, '', 'the app gets a token, not a cookie');
+  return r.data.token;
+}
+
+/** A request from the phone app: always the partner seat, with the token. */
+const fromApp = <T = any>(token: string, method: string, path: string, body?: unknown) =>
+  call<T>(method, path, { seat: 'partner', bearer: token, body });
+
+test('the partner phone app logs in with a token that works only on the partner seat', async () => {
+  const token = await appLogin(partnerPhone(0));
+  assert.match(token, /^[\w-]+\.[\w-]+$/);
+
+  const me = await fromApp(token, 'GET', 'me');
+  assert.equal(me.data.user.role, 'partner');
+  assert.equal(me.data.user.phone, partnerPhone(0));
+  assert.equal((await fromApp(token, 'PUT', 'partner', { online: true, place: PES })).data.user.online, true);
+  assert.equal((await fromApp(token, 'GET', 'orders')).status, 200);
+  assert.equal((await fromApp(token, 'GET', 'partner/earnings?period=week')).status, 200);
+
+  // The same token is no login at all on the customer or shop seat.
+  assert.equal((await call('GET', 'me', { seat: 'customer', bearer: token })).data.user, null);
+  assert.equal((await call('GET', 'orders', { seat: 'shop', bearer: token })).status, 401);
+
+  // A changed token, a token used as a cookie, and a browser cookie used as a token are all refused.
+  const forged = token.replace(/\.[^.]+$/, '.not-the-real-signature');
+  assert.equal((await fromApp(forged, 'GET', 'orders')).status, 401);
+  assert.equal((await call('GET', 'me', { as: 'lr_partner=' + token })).data.user, null);
+  const cookie = await loginAs(partnerPhone(0));
+  assert.equal((await fromApp(cookie.replace(/^lr_partner=/, ''), 'GET', 'me')).data.user, null);
+
+  // A browser login is unchanged: a cookie, and no token in the reply.
+  const web = await call('POST', 'auth/login', { seat: 'partner', body: { phone: partnerPhone(1), code: '1234' } });
+  assert.match(web.cookie, /^lr_partner=/);
+  assert.equal(web.data.token, undefined);
+
+  // Only partner accounts log in on the app's seat.
+  const shopOwner = await call('POST', 'auth/login', { seat: 'partner', app: true, body: { phone: ownerPhone(0), code: '1234' } });
+  assert.equal(shopOwner.status, 409);
+  assert.equal(shopOwner.data.code, 'wrong-seat');
+});
+
+test('a whole delivery can be done from the phone app', async () => {
+  const { customer, placed } = await packedOrder({ chips: 2 });
+  const token = await appLogin(partnerPhone(2));
+  await fromApp(token, 'PUT', 'partner', { online: true, place: PES });
+
+  const list = await fromApp<{ available: Order[] }>(token, 'GET', 'orders');
+  const job = list.data.available.find((o) => o.id === placed.id)!;
+  assert.ok(job, 'the packed order is offered to the partner');
+  assert.equal(job.customerPhone, '', 'no customer number before the partner takes the job');
+  assert.equal(job.otp, undefined);
+
+  const claimed = await fromApp<{ order: Order }>(token, 'POST', `orders/${placed.id}/claim`);
+  assert.equal(claimed.data.order.status, 'assigned');
+  assert.equal(claimed.data.order.customerPhone, '9876543210');
+  assert.equal((await fromApp(token, 'POST', `orders/${placed.id}/pickup`)).data.order.status, 'picked');
+
+  const wrong = await fromApp(token, 'POST', `orders/${placed.id}/deliver`, { otp: '0000' === placed.otp ? '1111' : '0000' });
+  assert.equal(wrong.status, 400);
+  assert.equal(wrong.data.code, 'otp');
+  const code = (await call<{ order: Order }>('GET', `orders/${placed.id}`, { as: customer })).data.order.otp;
+  const done = await fromApp<{ order: Order }>(token, 'POST', `orders/${placed.id}/deliver`, { otp: code });
+  assert.equal(done.data.order.status, 'delivered');
+
+  const earned = await fromApp(token, 'GET', 'partner/earnings?period=today');
+  assert.equal(earned.data.totals.today.deliveries, 1);
+  assert.equal(earned.data.totals.today.earned, done.data.order.partnerPay);
+});
+
+test('while a delivery is on its way, the customer sees the partner’s GPS position from the app', async () => {
+  const { customer, shop, placed } = await packedOrder();
+  const token = await appLogin(partnerPhone(1));
+  await fromApp(token, 'PUT', 'partner', { online: true, place: PES });
+  await fromApp(token, 'POST', `orders/${placed.id}/claim`);
+  const tracked = async () => (await call<{ order: Order }>('GET', `orders/${placed.id}`, { as: customer })).data.order;
+
+  // An area picked from the list is not a position, so nothing is shown.
+  assert.equal((await tracked()).rider, undefined);
+
+  const before = (await repo.versions(['phone:9876543210']))[0];
+  const here = { label: 'Current location', sub: 'GPS', lat: PES.lat + 0.004, lng: PES.lng + 0.002 };
+  assert.equal((await fromApp(token, 'PUT', 'partner', { place: here, gps: true })).status, 200);
+  assert.ok((await repo.versions(['phone:9876543210']))[0] > before, 'the customer’s live page is told the partner moved');
+
+  const seen = await tracked();
+  assert.deepEqual({ lat: seen.rider?.lat, lng: seen.rider?.lng }, { lat: here.lat, lng: here.lng });
+  const listed = (await call<{ orders: Order[] }>('GET', 'orders', { as: customer })).data.orders.find((o) => o.id === placed.id)!;
+  assert.equal(listed.rider?.lat, here.lat);
+
+  // Only the customer is sent it, and it is never saved with the order.
+  assert.equal((await call<{ order: Order }>('GET', `orders/${placed.id}`, { as: shop })).data.order.rider, undefined);
+  assert.equal((await fromApp<{ order: Order }>(token, 'GET', `orders/${placed.id}`)).data.order.rider, undefined);
+  assert.equal((await repo.orderById(placed.id))?.rider, undefined);
+
+  // A position more than 10 minutes old is not shown.
+  const start = clock.now();
+  clock.now = () => start + 11 * 60_000;
+  assert.equal((await tracked()).rider, undefined);
+  await fromApp(token, 'PUT', 'partner', { place: here, gps: true });
+  assert.ok((await tracked()).rider);
+
+  // Choosing an area again stops sharing, and so does handing the order over.
+  await fromApp(token, 'PUT', 'partner', { place: PES });
+  assert.equal((await tracked()).rider, undefined);
+  await fromApp(token, 'PUT', 'partner', { place: here, gps: true });
+  await fromApp(token, 'POST', `orders/${placed.id}/pickup`);
+  const code = (await tracked()).otp;
+  await fromApp(token, 'POST', `orders/${placed.id}/deliver`, { otp: code });
+  assert.equal((await tracked()).rider, undefined);
+});
+
+// ---------- The vendor (shop owner) phone app ----------
+
+/** Log in the way the vendor app does: on the shop seat, asking for a token. */
+async function vendorLogin(phone: string) {
+  const r = await call<{ user: { role: string; storeId: string }; token: string }>('POST', 'auth/login', { seat: 'shop', app: true, body: { phone, code: '2468' } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.cookie, '', 'the app gets a token, not a cookie');
+  return r.data;
+}
+
+/** A request from the vendor app: always the shop seat, with the token. */
+const fromVendorApp = <T = any>(token: string, method: string, path: string, body?: unknown) =>
+  call<T>(method, path, { seat: 'shop', bearer: token, body });
+
+test('the vendor phone app runs a shop with a token that works only on the shop seat', async () => {
+  const customer = await loginAs('9876543210');
+  const placed = (await order({ milk: 1, bread: 1 }, customer)).data.orders[0];
+  const shopIndex = SAMPLE.stores.findIndex((s) => s.id === placed.storeId);
+  const { user, token } = await vendorLogin(ownerPhone(shopIndex));
+  assert.equal(user.role, 'shop');
+  assert.equal(user.storeId, placed.storeId);
+
+  // The new order is on the shop's list, with the customer's number but never the door code.
+  const list = await fromVendorApp<{ orders: Order[] }>(token, 'GET', 'orders');
+  const seen = list.data.orders.find((o) => o.id === placed.id)!;
+  assert.equal(seen.status, 'placed');
+  assert.equal(seen.customerPhone, '9876543210');
+  assert.equal(seen.otp, undefined);
+  assert.ok(list.data.orders.every((o) => o.storeId === placed.storeId), 'only this shop’s orders');
+
+  assert.equal((await fromVendorApp<{ order: Order }>(token, 'POST', `orders/${placed.id}/accept`)).data.order.status, 'accepted');
+  assert.equal((await fromVendorApp<{ order: Order }>(token, 'POST', `orders/${placed.id}/pack`)).data.order.status, 'packed');
+
+  // Stock, a new product, pausing and sales all work from the app.
+  const pid = placed.lines[0].pid;
+  const stock = await fromVendorApp(token, 'PUT', 'shop/stock', { pid, price: 20, stock: 7 });
+  assert.equal(stock.status, 200, JSON.stringify(stock.data));
+  assert.equal(await stockOf(placed.storeId, pid), 7);
+  const added = await fromVendorApp(token, 'POST', 'shop/products', { name: 'Nandini curd', unit: '500 g', cat: 'dairy-bread', mrp: 35, price: 32, stock: 12, emoji: '' });
+  assert.equal(added.status, 201, JSON.stringify(added.data));
+  assert.equal(await stockOf(placed.storeId, added.data.product.id), 12);
+  assert.equal((await fromVendorApp(token, 'PUT', 'shop/paused', { paused: true })).data.paused, true);
+  assert.equal((await call('GET', 'catalog')).data.stores.find((s: { id: string }) => s.id === placed.storeId).paused, true);
+  assert.equal((await fromVendorApp(token, 'PUT', 'shop/paused', { paused: false })).data.paused, false);
+  assert.equal((await fromVendorApp(token, 'GET', 'shop/sales?period=week')).status, 200);
+
+  // Another shop's owner cannot touch this order.
+  const other = await vendorLogin(ownerPhone(shopIndex === 0 ? 1 : 0));
+  assert.equal((await fromVendorApp(other.token, 'POST', `orders/${placed.id}/accept`)).status, 403);
+
+  // The shop token is no login on the other seats, and other accounts cannot log in on the shop seat.
+  assert.equal((await call('GET', 'me', { seat: 'partner', bearer: token })).data.user, null);
+  assert.equal((await call('GET', 'orders', { seat: 'customer', bearer: token })).status, 401);
+  const partner = await call('POST', 'auth/login', { seat: 'shop', app: true, body: { phone: partnerPhone(0), code: '1234' } });
+  assert.equal(partner.status, 409);
+  assert.equal(partner.data.code, 'wrong-seat');
+  const stranger = await call('POST', 'auth/login', { seat: 'shop', app: true, body: { phone: '9988776655', code: '1234' } });
+  assert.equal(stranger.status, 404);
+  assert.equal(stranger.data.code, 'unknown');
+});
+
+test('turning an order down from the vendor app sends it to the next shop', async () => {
+  const customer = await loginAs('9876543210');
+  const placed = (await order({ milk: 1 }, customer)).data.orders[0];
+  const { token } = await vendorLogin(ownerPhone(SAMPLE.stores.findIndex((s) => s.id === placed.storeId)));
+  const before = await stockOf(placed.storeId, 'milk');
+
+  const turned = await fromVendorApp<{ order: Order }>(token, 'POST', `orders/${placed.id}/reject`);
+  assert.equal(turned.status, 200);
+  assert.notEqual(turned.data.order.storeId, placed.storeId, 'another shop nearby has it now');
+  assert.equal(turned.data.order.status, 'placed');
+  assert.equal(await stockOf(placed.storeId, 'milk'), (before ?? 0) + 1, 'the first shop gets its stock back');
+
+  // It is no longer on the first shop's list, and that shop cannot act on it any more.
+  const list = await fromVendorApp<{ orders: Order[] }>(token, 'GET', 'orders');
+  assert.equal(list.data.orders.some((o) => o.id === placed.id), false);
+  assert.equal((await fromVendorApp(token, 'POST', `orders/${placed.id}/accept`)).status, 403);
+});
+
+// ---------- Live updates in the phone apps ----------
+
+/** Open /api/live the way the phone apps do (a token, not a cookie) and read what arrives. */
+async function liveFromApp(seat: string, token: string) {
+  const response = await handle(
+    new Request(`http://test.local/api/live?seat=${seat}`, { headers: { authorization: 'Bearer ' + token, 'x-localrush-seat': seat } }),
+  );
+  assert.match(response.headers.get('content-type') ?? '', /text\/event-stream/);
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let from = 0;
+  return {
+    /** Wait for the next message that contains `part`, after the ones already matched. */
+    async next(part: string) {
+      const deadline = Date.now() + 5000;
+      while (!text.includes(part, from) && Date.now() < deadline) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value);
+      }
+      const at = text.indexOf(part, from);
+      assert.ok(at >= 0, `the ${seat} app should hear ${part}, got: ${text.slice(from)}`);
+      from = at + part.length;
+    },
+    close: () => reader.cancel(),
+  };
+}
+
+test('the phone apps hear about changes the moment they happen, through the same live stream as the website', async () => {
+  const customer = await loginAs('9876543210');
+  const placed = (await order({ chips: 1 }, customer)).data.orders[0];
+  const { token: shopToken } = await vendorLogin(ownerPhone(SAMPLE.stores.findIndex((s) => s.id === placed.storeId)));
+  const partnerToken = await appLogin(partnerPhone(0));
+  await fromApp(partnerToken, 'PUT', 'partner', { online: true, place: PES });
+
+  const shopLive = await liveFromApp('shop', shopToken);
+  const partnerLive = await liveFromApp('partner', partnerToken);
+  try {
+    await shopLive.next('"hello":true');
+    await partnerLive.next('"hello":true');
+
+    // The shop packs the order: its own app hears it, and so does the partner's, which then shows the job.
+    await fromVendorApp(shopToken, 'POST', `orders/${placed.id}/accept`);
+    await shopLive.next('"orders"');
+    await fromVendorApp(shopToken, 'POST', `orders/${placed.id}/pack`);
+    await partnerLive.next('"orders"');
+
+    // The partner takes it: the shop's app hears it.
+    await fromApp(partnerToken, 'POST', `orders/${placed.id}/claim`);
+    await shopLive.next('"orders"');
+
+    // A new order from the website reaches the shop's app, and a stock change too.
+    await order({ chips: 1 }, customer);
+    await shopLive.next('"orders"');
+    await fromVendorApp(shopToken, 'PUT', 'shop/stock', { pid: 'chips', price: 19, stock: 30 });
+    await shopLive.next('"catalog"');
+  } finally {
+    await shopLive.close();
+    await partnerLive.close();
+  }
+});
+
+// ---------- Live tracking on the customer's map ----------
+
+test('the customer’s map gets the way the partner has come, only for this delivery and only while it is on its way', async () => {
+  const { customer, shop, placed } = await packedOrder();
+  const token = await appLogin(partnerPhone(3));
+  await fromApp(token, 'PUT', 'partner', { online: true, place: PES });
+  const gps = (lat: number, lng: number) => fromApp(token, 'PUT', 'partner', { place: { label: 'Current location', sub: 'GPS', lat, lng }, gps: true });
+  const tracked = async () => (await call<{ order: Order }>('GET', `orders/${placed.id}`, { as: customer })).data.order;
+
+  // Before taking the order, positions are not kept.
+  await gps(PES.lat - 0.01, PES.lng);
+  await fromApp(token, 'POST', `orders/${placed.id}/claim`);
+  assert.deepEqual((await tracked()).rider?.trail, [], 'nothing from before the partner took it');
+
+  // Each position on the way is kept, oldest first; a step of a metre or two adds nothing.
+  const start = clock.now();
+  const way = [0, 1, 2, 3].map((i) => ({ lat: PES.lat - 0.008 + i * 0.002, lng: PES.lng + i * 0.001 }));
+  for (const [i, p] of way.entries()) {
+    clock.now = () => start + (i + 1) * 3000;
+    assert.equal((await gps(p.lat, p.lng)).status, 200);
+  }
+  clock.now = () => start + 15_000;
+  await gps(way[3].lat + 0.00001, way[3].lng);
+  const seen = (await tracked()).rider!;
+  assert.deepEqual(
+    seen.trail!.map((t) => [t.lat, t.lng]),
+    way.map((p) => [Math.round(p.lat * 1e5) / 1e5, Math.round(p.lng * 1e5) / 1e5]),
+  );
+  assert.ok(seen.trail!.every((t, i, all) => i === 0 || t.at > all[i - 1].at), 'oldest first');
+  assert.equal(seen.lat, way[3].lat + 0.00001, 'the position itself is always the latest');
+
+  // Nobody else is sent the route: not the shop, not the partner's own view of the order.
+  assert.equal((await call<{ order: Order }>('GET', `orders/${placed.id}`, { as: shop })).data.order.rider, undefined);
+  assert.equal((await fromApp<{ order: Order }>(token, 'GET', `orders/${placed.id}`)).data.order.rider, undefined);
+
+  // Choosing an area from the list stops the live position and clears the route.
+  await fromApp(token, 'PUT', 'partner', { place: PES });
+  assert.equal((await tracked()).rider, undefined);
+  await gps(way[3].lat, way[3].lng);
+  assert.equal((await tracked()).rider!.trail!.length, 1, 'the route starts again from here');
+
+  // After the handover there is nothing to track, and the next position starts nothing.
+  await fromApp(token, 'POST', `orders/${placed.id}/pickup`);
+  const code = (await tracked()).otp;
+  await fromApp(token, 'POST', `orders/${placed.id}/deliver`, { otp: code });
+  assert.equal((await tracked()).rider, undefined);
+  await gps(PES.lat, PES.lng);
+  const kept = (await repo.userById('u-partner-4'))!;
+  assert.equal(kept.trail, undefined, 'no route is kept once no delivery is under way');
 });

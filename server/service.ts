@@ -3,13 +3,13 @@
 
 import { randomBytes } from 'node:crypto';
 import { CATEGORIES, product, setDataset, type Dataset, type PackShape, type Place, type Product } from '../lib/data';
-import { roadKm } from '../lib/geo';
+import { crow, roadKm } from '../lib/geo';
 import { shopsNear } from '../lib/nearby';
-import { partnerPay, type Order, type OrderLine, type Status } from '../lib/orders';
+import { partnerPay, RIDER_FRESH_MS, type Order, type OrderLine, type Status } from '../lib/orders';
 import { earningsReport, isPeriod, salesReport, type EarningsReport, type SalesReport } from '../lib/reports';
 import { planOrder, type Line, type Mode } from '../lib/select';
 import { clock } from './clock';
-import type { Address, Repo, User } from './types';
+import type { Address, Repo, TrailPoint, User } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -223,7 +223,7 @@ export async function listOrders(repo: Repo, user: User) {
     const orders = await repo.orders({ customerPhone: user.phone });
     // Checked again here so a customer can only ever be sent their own orders, even by a
     // database layer that missed the filter (an old one kept alive by a dev-server reload).
-    return { orders: orders.filter((o) => ownsOrder(user, o)).map((o) => viewOrder(o, user)) };
+    return { orders: await withRider(repo, orders.filter((o) => ownsOrder(user, o)).map((o) => viewOrder(o, user))) };
   }
   if (user.role === 'shop') {
     const orders = await repo.orders({ storeId: user.storeId });
@@ -256,6 +256,7 @@ export async function getOrder(repo: Repo, user: User, orderId: string): Promise
       (user.role === 'shop' && o.storeId === user.storeId) ||
       (user.role === 'partner' && (o.partnerId === user.id || (o.status === 'packed' && o.partnerId === null))));
   if (!o || !allowed) throw new ApiError(404, 'We could not find that order.');
+  if (user.role === 'customer') return (await withRider(repo, [viewOrder(o, user)]))[0];
   return viewOrder(o, user);
 }
 
@@ -455,17 +456,73 @@ export async function shopSales(repo: Repo, user: User, period: unknown): Promis
 
 // ---------- Delivery partner ----------
 
-export async function setPartner(repo: Repo, user: User, input: { online?: unknown; place?: unknown }): Promise<User> {
+/**
+ * The most GPS positions kept for the customer's map. The partner app sends one about every 15 m
+ * while delivering, so this covers about 9 km: the way to the shop and on to the customer.
+ */
+export const TRAIL_MAX = 600;
+/** A new position closer than this to the last one (a phone standing still) adds nothing to the route. */
+const TRAIL_STEP_KM = 0.005;
+/** About 1 m: enough for a street map, and keeps what is stored and sent small. */
+const fine = (n: number) => Math.round(n * 1e5) / 1e5;
+
+/**
+ * Go online or offline, and say where the partner is: an area from the list, or the phone's
+ * GPS position (`gps: true`, sent by the partner app as the partner moves). While a delivery
+ * is under way, its customer's tracking page follows the GPS position.
+ */
+export async function setPartner(repo: Repo, user: User, input: { online?: unknown; place?: unknown; gps?: unknown }): Promise<User> {
   if (user.role !== 'partner') throw new ApiError(403, 'Only delivery partners can do that.');
   const next: User = { ...user };
   if (typeof input.online === 'boolean') next.online = input.online;
+  const channels = ['partner:' + user.id];
   if (input.place !== undefined) {
     if (!isPlace(input.place)) throw new ApiError(400, 'Choose your area.');
     next.place = input.place;
+    const riding = await repo.orders({ partnerId: user.id, statuses: ['assigned', 'picked'] });
+    if (input.gps === true) {
+      const at = clock.now();
+      next.gpsAt = at;
+      // Keep the way the partner has come while a delivery is under way, for the customer's map.
+      if (riding.length > 0) {
+        const point: TrailPoint = { lat: fine(input.place.lat), lng: fine(input.place.lng), at };
+        const trail = user.trail ?? [];
+        const last = trail[trail.length - 1];
+        const moved = !last || crow(last.lat, last.lng, point.lat, point.lng) >= TRAIL_STEP_KM;
+        next.trail = moved ? [...trail, point].slice(-TRAIL_MAX) : trail;
+      } else delete next.trail;
+    } else {
+      // An area from the list is not where the partner is: stop showing a position or a route.
+      delete next.gpsAt;
+      delete next.trail;
+    }
+    channels.push(...riding.map((o) => 'phone:' + o.customerPhone));
   }
   await repo.putUser(next);
-  await repo.bump(['partner:' + user.id]);
+  await repo.bump(channels);
   return next;
+}
+
+/**
+ * Add the partner's GPS position to a customer's orders that are on their way, while it is fresh,
+ * with the way they have come since taking that order.
+ */
+async function withRider(repo: Repo, orders: Order[]): Promise<Order[]> {
+  const riding = orders.filter((o) => (o.status === 'assigned' || o.status === 'picked') && o.partnerId);
+  if (riding.length === 0) return orders;
+  const partners = new Map<string, User | null>();
+  for (const o of riding) {
+    if (!partners.has(o.partnerId!)) partners.set(o.partnerId!, await repo.userById(o.partnerId!));
+  }
+  const now = clock.now();
+  return orders.map((o) => {
+    const p = riding.includes(o) ? partners.get(o.partnerId!) : null;
+    if (!p?.place || !p.gpsAt || now - p.gpsAt > RIDER_FRESH_MS) return o;
+    // Only this delivery's part of the route: nothing from before the partner took it.
+    const takenAt = [...o.history].reverse().find((h) => h.status === 'assigned')?.at ?? o.updatedAt;
+    const trail = (p.trail ?? []).filter((t) => t.at >= takenAt);
+    return { ...o, rider: { lat: p.place.lat, lng: p.place.lng, at: p.gpsAt, trail } };
+  });
 }
 
 /** What the partner has earned, from every delivery they have completed. */

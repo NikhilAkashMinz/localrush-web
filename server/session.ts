@@ -1,5 +1,8 @@
 // Login sessions: a signed cookie holding the user's id. No session table needed.
 // The signature stops anyone editing the cookie to become someone else.
+//
+// The phone apps (partner-app/ and vendor-app/) cannot rely on browser cookies, so they get the
+// same kind of signed value as a token and send it in an "Authorization: Bearer ..." header.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
@@ -45,33 +48,53 @@ function secret() {
 
 const sign = (value: string) => createHmac('sha256', secret()).update(value).digest('base64url');
 
+/** A signed "user id + time" value. `seat` is recorded in app tokens, so a token works on one seat only. */
+function signed(userId: string, seat?: Seat) {
+  const value = Buffer.from(JSON.stringify(seat ? { u: userId, t: Date.now(), s: seat } : { u: userId, t: Date.now() })).toString('base64url');
+  return `${value}.${sign(value)}`;
+}
+
 export function sessionCookie(userId: string, seat: Seat) {
-  const value = Buffer.from(JSON.stringify({ u: userId, t: Date.now() })).toString('base64url');
-  return `${cookieName(seat)}=${value}.${sign(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE}`;
+  return `${cookieName(seat)}=${signed(userId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE}`;
 }
 
 export const clearCookie = (seat: Seat) => `${cookieName(seat)}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 
-/** The user id in this seat's login cookie, or null if there is none or it was tampered with. */
+/** A login token for the phone app. It is valid for 30 days, like the cookie, and only on this seat. */
+export const sessionToken = (userId: string, seat: Seat) => signed(userId, seat);
+
+/** The user id inside a signed value, or null if it was tampered with, has expired or is for another seat. */
+function verify(raw: string, seat: Seat, isToken: boolean): string | null {
+  const [value, signature, extra] = raw.split('.');
+  if (!value || !signature || extra !== undefined) return null;
+  const expected = Buffer.from(sign(value));
+  const given = Buffer.from(signature);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+  try {
+    const data = JSON.parse(Buffer.from(value, 'base64url').toString()) as { u?: unknown; t?: unknown; s?: unknown };
+    if (typeof data.u !== 'string' || typeof data.t !== 'number') return null;
+    if (Date.now() - data.t > MAX_AGE * 1000) return null;
+    // A token must name the seat it is used on; a cookie is already tied to its seat by its name.
+    if (isToken ? data.s !== seat : data.s !== undefined) return null;
+    return data.u;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The user id logged in on this seat, or null if there is none or it was tampered with.
+ * The phone app sends a token in the Authorization header; browsers send this seat's cookie.
+ */
 export function readSession(request: Request, seat: Seat): string | null {
+  const auth = request.headers.get('authorization') ?? '';
+  if (/^Bearer\s+/i.test(auth)) return verify(auth.replace(/^Bearer\s+/i, '').trim(), seat, true);
+
   const COOKIE = cookieName(seat);
   const header = request.headers.get('cookie') ?? '';
   const raw = header
     .split(';')
     .map((c) => c.trim())
     .find((c) => c.startsWith(COOKIE + '='));
-  if (!raw) return null;
-  const [value, signature] = raw.slice(COOKIE.length + 1).split('.');
-  if (!value || !signature) return null;
-  const expected = Buffer.from(sign(value));
-  const given = Buffer.from(signature);
-  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
-  try {
-    const data = JSON.parse(Buffer.from(value, 'base64url').toString()) as { u?: unknown; t?: unknown };
-    if (typeof data.u !== 'string' || typeof data.t !== 'number') return null;
-    if (Date.now() - data.t > MAX_AGE * 1000) return null;
-    return data.u;
-  } catch {
-    return null;
-  }
+  return raw ? verify(raw.slice(COOKIE.length + 1), seat, false) : null;
 }

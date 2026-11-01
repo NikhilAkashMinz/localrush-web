@@ -5,12 +5,14 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { ProductArt } from '@/components/Product';
 import { CheckIcon } from '@/components/Icons';
+import LiveTrackMap, { ARRIVING_KM, LIVE_MS, liveEta } from '@/components/LiveTrackMap';
 import { TrackMap } from '@/components/Scenes';
 import { errorText } from '@/lib/api';
 import { CATEGORIES, KIND_COLOR, product, store, type StoreKind } from '@/lib/data';
 import { km, rupee, when } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
-import { isOver, lineName, minutesLeft, riderPosition, stageIndex, STAGES } from '@/lib/orders';
+import { roadKm } from '@/lib/geo';
+import { isOver, lineName, liveRiderPosition, minutesLeft, stageIndex, STAGES } from '@/lib/orders';
 import { actions, useStore } from '@/lib/state';
 
 const KIND_EMOJI: Record<StoreKind, string> = {
@@ -25,12 +27,20 @@ const KIND_EMOJI: Record<StoreKind, string> = {
 
 const clock = (ts: number) => new Date(ts).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
 
+/** "just now", "40 s ago", "3 min ago". */
+const ago = (ts: number, now: number) => {
+  const s = Math.max(0, Math.round((now - ts) / 1000));
+  return s < 10 ? 'just now' : s < 60 ? `${s} s ago` : `${Math.floor(s / 60)} min ago`;
+};
+
 export default function TrackPage() {
   const { id } = useParams<{ id: string }>();
   const user = useStore((s) => s.user);
   const order = useStore((s) => s.orders).find((o) => o.id === id);
   const now = useNow(1000);
   const [cancelling, setCancelling] = useState(false);
+  /** The live street map or the 3D view; null picks by itself (the map once a partner has the order). */
+  const [view, setView] = useState<'map' | '3d' | null>(null);
 
   if (!order) {
     return (
@@ -53,7 +63,18 @@ export default function TrackPage() {
   const stage = stageIndex(order.status);
   const done = order.status === 'delivered';
   const stopped = order.status === 'cancelled' || order.status === 'rejected';
-  const left = minutesLeft(order, now);
+  const riding = order.status === 'assigned' || order.status === 'picked';
+  const showMap = view ? view === 'map' : riding;
+  // With the partner's GPS, the arrival time comes from where they really are (or were last seen:
+  // the server stops sending a position that is more than a few minutes old).
+  const eta = liveEta(order, shop);
+  const left = eta ? eta.minutes : minutesLeft(order, now);
+  // Without GPS, the map shows where the partner probably is on the way from the shop, by time.
+  const guess = (() => {
+    if (order.status !== 'picked' || order.rider || !shop) return null;
+    const f = Math.min(1, Math.max(0, liveRiderPosition(order, now, shop) - 1));
+    return { lat: shop.lat + (order.lat - shop.lat) * f, lng: shop.lng + (order.lng - shop.lng) * f };
+  })();
   const headline = done
     ? 'Delivered'
     : order.status === 'cancelled'
@@ -63,7 +84,9 @@ export default function TrackPage() {
         : order.status === 'placed'
           ? 'Waiting for the shop to accept'
           : order.status === 'picked'
-            ? `Arriving in about ${left} min`
+            ? eta && eta.toYou < ARRIVING_KM
+              ? 'Arriving now'
+              : `Arriving in about ${left} min`
             : `On track for about ${left} min`;
   const timeOf = (key: string) => [...order.history].reverse().find((h) => h.status === key)?.at;
 
@@ -118,17 +141,38 @@ export default function TrackPage() {
             </div>
           ) : (
             <>
-              <TrackMap
-                rider={riderPosition(order, now)}
-                stage={stage}
-                done={done}
-                shopEmoji={KIND_EMOJI[kind]}
-                shopColor={KIND_COLOR[kind]}
-              />
+              <div className="seg track-views" role="radiogroup" aria-label="How to show your delivery">
+                <button type="button" role="radio" aria-checked={showMap} className={showMap ? 'on' : ''} onClick={() => setView('map')}>
+                  Live map
+                </button>
+                <button type="button" role="radio" aria-checked={!showMap} className={showMap ? '' : 'on'} onClick={() => setView('3d')}>
+                  3D view
+                </button>
+              </div>
+              {showMap ? (
+                <LiveTrackMap
+                  order={order}
+                  shop={shop ? { lat: shop.lat, lng: shop.lng, name: shop.name, emoji: KIND_EMOJI[kind], color: KIND_COLOR[kind] } : null}
+                  estimate={guess}
+                  now={now}
+                />
+              ) : (
+                <TrackMap
+                  rider={liveRiderPosition(order, now, shop)}
+                  stage={stage}
+                  done={done}
+                  shopEmoji={KIND_EMOJI[kind]}
+                  shopColor={KIND_COLOR[kind]}
+                />
+              )}
               <div className="demo">
                 <p>
-                  <b>Live order.</b> Each step changes the moment the shop or the delivery partner confirms it. The
-                  scooter on the map is an estimate between those steps, not GPS.
+                  <b>Live order.</b> Each step changes the moment the shop or the delivery partner confirms it.{' '}
+                  {order.rider
+                    ? 'The map follows your delivery partner’s phone, live: each new GPS position shows up here within about a second.'
+                    : riding
+                      ? 'The partner’s live position shows on the map when their LocalRush Partner app shares GPS.'
+                      : 'Once a delivery partner takes your order, you can follow them on the live map.'}
                 </p>
                 {order.status === 'placed' && (
                   <button type="button" className="btn btn-small btn-line" disabled={cancelling} onClick={cancel}>
@@ -198,6 +242,12 @@ export default function TrackPage() {
               <span>
                 <b>{order.partnerName ?? 'Your delivery code'}</b>
                 <small>{order.partnerName ? 'Your delivery partner. Give them this code at the door.' : 'Give this code to the delivery partner at the door.'}</small>
+                {order.rider && (
+                  <small className="partner-live">
+                    {now - order.rider.at < LIVE_MS ? 'Live from their phone: ' : 'Last seen '}
+                    {km(roadKm(order.rider.lat, order.rider.lng, order.lat, order.lng))} from you, {ago(order.rider.at, now)}
+                  </small>
+                )}
               </span>
               <span className="otp">
                 <small>Code for {order.id}</small>

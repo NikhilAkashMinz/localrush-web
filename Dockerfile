@@ -11,6 +11,10 @@ RUN npm ci
 FROM node:22-slim AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+# Optional Google Maps key for the real 3D map. Next.js writes NEXT_PUBLIC_ values into the
+# page while building, so it is needed here, not when the image runs.
+ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=
+ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

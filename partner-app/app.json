@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "LocalRush Partner",
+    "slug": "localrush-partner",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F3F5F9",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.localrush.partner"
+    },
+    "android": {
+      "package": "com.localrush.partner",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B7A75",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "VIBRATE"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "LocalRush Partner uses your location to show deliveries near you and, while you deliver, to show the customer where you are."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
+  }
+}

@@ -17,6 +17,7 @@ export function createMemoryRepo(): Repo {
   const users = new Map<string, User>(seedUsers().map((u) => [u.id, u]));
   const orders = new Map<string, Order>();
   const counters = new Map<string, number>();
+  const cached = new Map<string, { at: number; value: unknown }>();
 
   return {
     kind: 'memory',
@@ -97,6 +98,14 @@ export function createMemoryRepo(): Repo {
     },
     async versions(channels) {
       return channels.map((c) => counters.get(c) ?? 0);
+    },
+
+    async getCached<T>(key: string) {
+      const hit = cached.get(key);
+      return hit ? copy(hit as { at: number; value: T }) : null;
+    },
+    async putCached(key, value, at) {
+      cached.set(key, copy({ at, value }));
     },
   };
 }

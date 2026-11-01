@@ -2,13 +2,17 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ProductRow } from '@/components/Product';
+import RealMap, { type Pick } from '@/components/RealMap';
 import { RadiusMap } from '@/components/Scenes';
+import { KIND_EMOJI } from '@/components/ShopMap';
 import { CATEGORIES, KIND_COLOR, KIND_LABEL, PRODUCTS, QUICK_NEEDS } from '@/lib/data';
 import { hourLabel, km, mins } from '@/lib/format';
+import { GOOGLE_KEY, useRealShops } from '@/lib/google';
 import { useNear } from '@/lib/hooks';
 import { availability, usable } from '@/lib/nearby';
+import { useOsmShops } from '@/lib/realshops';
 import { actions, useStore } from '@/lib/state';
 
 function greeting() {
@@ -25,6 +29,25 @@ export default function HomePage() {
   const near = useNear();
   const router = useRouter();
   const [highlight, setHighlight] = useState<string | null>(null);
+  // Google's real 3D map when there is a key and it works; otherwise the site's own 3D scene.
+  const [mapFailed, setMapFailed] = useState('');
+  const realMap = !!GOOGLE_KEY && !mapFailed;
+  // Real shops nearby: Google's on Google's map; otherwise OpenStreetMap's, which need no key.
+  const google = useRealShops(place);
+  const fromOsm = !realMap;
+  const osm = useOsmShops(place, fromOsm);
+  const real = fromOsm ? osm : google;
+  const [picked, setPicked] = useState<Pick | null>(null);
+  const heroMap = useRef<HTMLDivElement>(null);
+
+  // Shops near one place mean nothing at the next.
+  useEffect(() => setPicked(null), [place.lat, place.lng]);
+
+  /** Show a shop on the 3D map, bringing the map into view. */
+  const showOnMap = (pick: Pick) => {
+    setPicked(pick);
+    heroMap.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   const open = usable(near);
   const inRange = near.filter((n) => n.inRange);
@@ -71,6 +94,11 @@ export default function HomePage() {
               Every shop within 5 km of {place.label} is closed right now. The first one opens at{' '}
               {hourLabel(Math.min(...inRange.map((n) => n.store.open[0])))}.
             </p>
+          ) : realMap && real.shops.length > 0 ? (
+            <p className="hero-sub">
+              No shop within 5 km of {place.label} has joined LocalRush yet. The map shows the {real.shops.length} nearest
+              shops on Google Maps; to order, try one of the areas where LocalRush shops are.
+            </p>
           ) : (
             <p className="hero-sub">
               No shop within 5 km of {place.label} has joined LocalRush yet. Try another area to see how it works.
@@ -89,19 +117,41 @@ export default function HomePage() {
             </div>
           )}
         </div>
-        <div className="hero-map">
-          <RadiusMap
-            near={near}
-            seed={Math.round((place.lat + place.lng) * 10000)}
-            highlight={highlight}
-            onSelect={(id) => router.push(`/store/${id}`)}
-          />
-          <p className="hero-key">
-            <i className="key-ring" /> 5 km by road from you
-            <span>Drag to turn, tap a shop to open it</span>
-          </p>
+        <div className={realMap ? 'hero-map hero-map-real' : 'hero-map'} ref={heroMap}>
+          {realMap ? (
+            <RealMap
+              place={place}
+              near={near}
+              real={real.shops}
+              picked={picked}
+              onPick={setPicked}
+              onFail={(message) => {
+                console.warn('[localrush] Showing the built-in 3D scene instead of Google Maps:', message);
+                setMapFailed(message);
+              }}
+            />
+          ) : (
+            <>
+              <RadiusMap
+                near={near}
+                seed={Math.round((place.lat + place.lng) * 10000)}
+                highlight={highlight}
+                onSelect={(id) => router.push(`/store/${id}`)}
+              />
+              <p className="hero-key">
+                <i className="key-ring" /> 5 km by road from you
+                <span>Drag to turn, tap a shop to open it</span>
+              </p>
+            </>
+          )}
         </div>
       </section>
+
+      {mapFailed && (
+        <p className="note map-note" role="status">
+          The real 3D map is not available, so this is LocalRush&apos;s own map. {mapFailed}
+        </p>
+      )}
 
       {inRange.length > 0 && (
         <section className="shops" aria-label="Shops around you">
@@ -133,6 +183,66 @@ export default function HomePage() {
               </Link>
             ))}
           </div>
+        </section>
+      )}
+
+      {(real.loading || real.error || real.shops.length > 0) && (
+        <section className="shops" aria-label="More shops near you">
+          <header className="shelf-head">
+            <h2>More shops near you</h2>
+            {fromOsm ? (
+              <Link href="/shops" className="link">
+                See them on a map
+              </Link>
+            ) : (
+              <span className="quiet small">From Google Maps</span>
+            )}
+          </header>
+          {real.error ? (
+            <p className="warn">{real.error}</p>
+          ) : real.loading ? (
+            <p className="quiet">Finding real shops near {place.label}…</p>
+          ) : (
+            <>
+              <div className="shops-track">
+                {real.shops.slice(0, 20).map((s) => {
+                  const inner = (
+                    <>
+                      <i style={{ background: s.kind ? KIND_COLOR[s.kind] : 'var(--mute)' }} />
+                      <span>
+                        <b>{s.name}</b>
+                        <small>
+                          {s.typeLabel}, {km(s.distKm)}
+                        </small>
+                      </span>
+                      <em aria-hidden>{s.kind ? KIND_EMOJI[s.kind] : '🏪'}</em>
+                    </>
+                  );
+                  return realMap ? (
+                    <button
+                      type="button"
+                      key={s.id}
+                      className={picked?.id === s.id ? 'shop shop-real on' : 'shop shop-real'}
+                      onClick={() => showOnMap({ kind: 'google', id: s.id })}
+                      aria-label={`Show ${s.name} on the map`}
+                    >
+                      {inner}
+                    </button>
+                  ) : (
+                    <Link key={s.id} href={`/shops?shop=${encodeURIComponent(s.id)}`} className="shop shop-real" aria-label={`Show ${s.name} on the map`}>
+                      {inner}
+                    </Link>
+                  );
+                })}
+              </div>
+              <p className="quiet small">
+                {fromOsm
+                  ? `${real.shops.length} real shops within 5 km, from OpenStreetMap; the nearest are above.`
+                  : `The ${real.shops.length} nearest shops listed on Google Maps.`}{' '}
+                They are not on LocalRush yet, so you can only order from LocalRush shops.
+              </p>
+            </>
+          )}
         </section>
       )}
 

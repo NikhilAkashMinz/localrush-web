@@ -64,7 +64,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: APP_VERSION=${{ github.sha }}
+          # The Google Maps key goes into the page when it is built. Without the
+          # GOOGLE_MAPS_API_KEY repository secret, the site shows its own 3D scene instead.
+          build-args: |
+            APP_VERSION=${{ github.sha }}
+            NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${{ secrets.GOOGLE_MAPS_API_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

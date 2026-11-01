@@ -308,7 +308,7 @@ export default function PartnerPage() {
   const online = user.online === true;
   const listed = PLACES.some((p) => p.label === user.place?.label);
 
-  const change = async (patch: { online?: boolean; place?: Place }, done?: string) => {
+  const change = async (patch: { online?: boolean; place?: Place; gps?: boolean }, done?: string) => {
     setBusy(true);
     try {
       await actions.setPartner(patch);
@@ -333,6 +333,7 @@ export default function PartnerPage() {
               lat: pos.coords.latitude,
               lng: pos.coords.longitude,
             },
+            gps: true,
           },
           'Using your current location',
         );
