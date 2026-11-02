@@ -35,7 +35,7 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const [demo, setDemo] = useState<DemoAccount[]>([]);
   const [showAll, setShowAll] = useState(false);
-  const [status, setStatus] = useState<'checking' | 'ok' | 'down'>('checking');
+  const [status, setStatus] = useState<'checking' | 'ok' | 'down' | 'nodb'>('checking');
   const [serverOpen, setServerOpen] = useState(false);
 
   // Check the server, and fetch the ready-made demo shop owners, whenever the address changes.
@@ -49,10 +49,11 @@ export default function LoginScreen() {
         setDemo(accounts.filter((a) => a.role === 'shop'));
         setStatus('ok');
       })
-      .catch(() => {
+      .catch((e) => {
         if (gone) return;
         setDemo([]);
-        setStatus('down');
+        // The server answered, but could not reach its database (MongoDB).
+        setStatus(e instanceof ApiError && e.status === 503 ? 'nodb' : 'down');
       });
     return () => {
       gone = true;
@@ -72,7 +73,14 @@ export default function LoginScreen() {
     }
   };
 
-  const serverLine = status === 'ok' ? 'Connected to LocalRush' : status === 'down' ? 'Cannot reach the LocalRush server' : 'Checking the server…';
+  const serverLine =
+    status === 'ok'
+      ? 'Connected to LocalRush'
+      : status === 'down'
+        ? 'Cannot reach the LocalRush server'
+        : status === 'nodb'
+          ? 'Server found, but its database is not running'
+          : 'Checking the server…';
   const shown = showAll ? demo : demo.slice(0, FIRST);
 
   return (
@@ -180,7 +188,7 @@ export default function LoginScreen() {
         </View>
 
         <Pressable onPress={() => setServerOpen(true)} style={({ pressed }) => [st.server, pressed && st.pressed]} accessibilityRole="button">
-          <View style={[st.serverDot, { backgroundColor: status === 'ok' ? '#4ADE80' : status === 'down' ? '#FF8A8A' : color.gold }]} />
+          <View style={[st.serverDot, { backgroundColor: status === 'ok' ? '#4ADE80' : status === 'checking' ? color.gold : '#FF8A8A' }]} />
           <View style={st.flex}>
             <Text style={st.serverLabel}>{serverLine}</Text>
             <Text style={st.serverText} numberOfLines={1}>
@@ -189,9 +197,11 @@ export default function LoginScreen() {
           </View>
           <Text style={st.serverChange}>Change</Text>
         </Pressable>
-        {status === 'down' ? (
+        {status === 'down' || status === 'nodb' ? (
           <Text style={st.serverHelp}>
-            Start the website on your laptop with npm run dev, keep this phone on the same Wi-Fi, and check the address.
+            {status === 'nodb'
+              ? 'The server on your laptop cannot reach MongoDB. Start MongoDB, or put # in front of MONGODB_URI in .env.local and restart npm run dev to run without a database.'
+              : 'Start the website on your laptop with npm run dev, keep this phone on the same Wi-Fi, and check the address.'}
           </Text>
         ) : null}
       </ScrollView>

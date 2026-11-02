@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { errorText } from '../api';
+import { ApiError, errorText } from '../api';
 import { phoneText } from '../format';
 import { useApp } from '../store';
 import { color, radius, type } from '../theme';
@@ -20,7 +20,7 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [demo, setDemo] = useState<DemoAccount[]>([]);
-  const [status, setStatus] = useState<'checking' | 'ok' | 'down'>('checking');
+  const [status, setStatus] = useState<'checking' | 'ok' | 'down' | 'nodb'>('checking');
   const [serverOpen, setServerOpen] = useState(false);
 
   // Check the server, and fetch the ready-made demo partners, whenever the address changes.
@@ -34,10 +34,11 @@ export default function LoginScreen() {
         setDemo(accounts.filter((a) => a.role === 'partner'));
         setStatus('ok');
       })
-      .catch(() => {
+      .catch((e) => {
         if (gone) return;
         setDemo([]);
-        setStatus('down');
+        // The server answered, but could not reach its database (MongoDB).
+        setStatus(e instanceof ApiError && e.status === 503 ? 'nodb' : 'down');
       });
     return () => {
       gone = true;
@@ -57,7 +58,14 @@ export default function LoginScreen() {
     }
   };
 
-  const serverLine = status === 'ok' ? 'Connected to LocalRush' : status === 'down' ? 'Cannot reach the LocalRush server' : 'Checking the server…';
+  const serverLine =
+    status === 'ok'
+      ? 'Connected to LocalRush'
+      : status === 'down'
+        ? 'Cannot reach the LocalRush server'
+        : status === 'nodb'
+          ? 'Server found, but its database is not running'
+          : 'Checking the server…';
 
   return (
     <KeyboardAvoidingView behavior="padding" style={st.screen}>
@@ -152,7 +160,7 @@ export default function LoginScreen() {
         </View>
 
         <Pressable onPress={() => setServerOpen(true)} style={({ pressed }) => [st.server, pressed && st.pressed]} accessibilityRole="button">
-          <View style={[st.serverDot, { backgroundColor: status === 'ok' ? '#4ADE80' : status === 'down' ? '#FF8A8A' : color.gold }]} />
+          <View style={[st.serverDot, { backgroundColor: status === 'ok' ? '#4ADE80' : status === 'checking' ? color.gold : '#FF8A8A' }]} />
           <View style={st.flex}>
             <Text style={st.serverLabel}>{serverLine}</Text>
             <Text style={st.serverText} numberOfLines={1}>
@@ -161,9 +169,11 @@ export default function LoginScreen() {
           </View>
           <Text style={st.serverChange}>Change</Text>
         </Pressable>
-        {status === 'down' ? (
+        {status === 'down' || status === 'nodb' ? (
           <Text style={st.serverHelp}>
-            Start the website on your laptop with npm run dev, keep this phone on the same Wi-Fi, and check the address.
+            {status === 'nodb'
+              ? 'The server on your laptop cannot reach MongoDB. Start MongoDB, or put # in front of MONGODB_URI in .env.local and restart npm run dev to run without a database.'
+              : 'Start the website on your laptop with npm run dev, keep this phone on the same Wi-Fi, and check the address.'}
           </Text>
         ) : null}
       </ScrollView>

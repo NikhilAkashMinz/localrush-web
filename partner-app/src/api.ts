@@ -4,6 +4,7 @@
 //   - gives up after a few seconds, so a dropped Wi-Fi never leaves a button spinning.
 
 import type { DemoAccount, EarningsReport, Health, Job, Me, Order, Period, Place, Shop } from './types';
+import { SERVER_PORT } from './config';
 
 /** An error the server explained, or a network problem. `message` can be shown to the partner as it is. */
 export class ApiError extends Error {
@@ -57,6 +58,16 @@ export function createApi(connection: Connection) {
       data = await response.json();
     } catch {
       // An empty or non-JSON reply is handled below.
+    }
+    // Every LocalRush reply is a JSON object. Anything else came from something that is not the
+    // LocalRush server, such as Expo on port 8081.
+    const isLocalRush = !!data && typeof data === 'object';
+    if (!isLocalRush && (response.ok || response.status === 404)) {
+      throw new ApiError(
+        `${server} is not the LocalRush server. Use the laptop's address with port ${SERVER_PORT}, for example http://192.168.1.5:${SERVER_PORT}, and check that "npm run dev" is running.`,
+        0,
+        'network',
+      );
     }
     if (!response.ok) {
       const info = (data ?? {}) as { error?: string; code?: string };

@@ -267,10 +267,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         user = null;
       }
       const loggedIn = !!token && !!user;
+      // Tidy an address saved by an older version, such as Expo's port 8081 instead of 3000.
+      const saved = savedServer ? cleanServer(savedServer) : null;
       update({
         ready: true,
-        server: savedServer ?? detectedServer() ?? '',
-        serverSaved: !!savedServer,
+        server: saved ?? detectedServer() ?? '',
+        serverSaved: !!saved,
         token: loggedIn ? token : null,
         user: loggedIn ? user : null,
         gpsWanted: gpsChoice !== 'off',

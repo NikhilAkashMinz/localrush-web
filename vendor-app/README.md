@@ -94,6 +94,11 @@ keeps it with the nearest shop.
   ```
 
   The app then also finds the server at that address.
+- **The address ends in `:8081`**: that is Expo's own address (the "Metro" line in the terminal),
+  not the LocalRush server, which is on port 3000. The app turns an `:8081` address into `:3000`
+  by itself; if a server answers that is not LocalRush, the app says so.
+- **On the Android Studio emulator**: the app finds the laptop as usual. If it cannot, enter
+  `http://10.0.2.2:3000`, which is how the emulator reaches the laptop it runs on.
 - **`npx expo start --tunnel`**: the app still loads, but it cannot work out the server address.
   Enter it on the login screen; the phone must still be able to reach the laptop on port 3000.
 - **No LIVE at the top of the app**: the app still works, but checks for changes every 4 seconds

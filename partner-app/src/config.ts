@@ -9,6 +9,8 @@ import Constants from 'expo-constants';
 
 /** The port "npm run dev" serves the LocalRush website and API on. */
 export const SERVER_PORT = 3000;
+/** Expo's own port (the "Metro: exp://...:8081" address that "npx expo start" shows). It is never the LocalRush server. */
+const EXPO_PORT = '8081';
 
 /** The laptop's address as Expo sees it, as a server address, or null if it cannot be told. */
 export function detectedServer(): string | null {
@@ -21,16 +23,18 @@ export function detectedServer(): string | null {
 
 /**
  * Tidy what someone typed into a server address: "192.168.1.5" becomes
- * "http://192.168.1.5:3000". Returns null if it cannot be an address.
+ * "http://192.168.1.5:3000". Expo's address from the terminal ("exp://192.168.1.5:8081") is
+ * the same laptop, so it becomes the LocalRush server on it. Returns null if it cannot be an address.
  */
 export function cleanServer(input: string): string | null {
   let text = input.trim().replace(/\/+$/, '').replace(/\/api$/, '');
   if (!text) return null;
+  text = text.replace(/^exps?:\/\//i, 'http://');
   if (!/^https?:\/\//i.test(text)) text = 'http://' + text;
   const match = /^(https?):\/\/([^/:\s]+)(?::(\d{1,5}))?$/i.exec(text);
   if (!match) return null;
   const [, scheme, host, port] = match;
   const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
-  const usePort = port ?? (isIp || host === 'localhost' ? String(SERVER_PORT) : '');
+  const usePort = port && port !== EXPO_PORT ? port : isIp || host === 'localhost' || port === EXPO_PORT ? String(SERVER_PORT) : '';
   return `${scheme.toLowerCase()}://${host}${usePort ? ':' + usePort : ''}`;
 }
