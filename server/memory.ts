@@ -4,7 +4,7 @@
 import type { Product, Stock, Store } from '../lib/data';
 import { stockKey } from '../lib/data';
 import type { Order } from '../lib/orders';
-import { isLive } from './config';
+import { isLive, sampleShops } from './config';
 import { seedCatalogue, seedUsers } from './seed';
 import type { OrderFilter, Repo, User } from './types';
 
@@ -14,9 +14,11 @@ export function createMemoryRepo(): Repo {
   const seed = seedCatalogue();
   // The live service starts with the product catalogue only: no sample shops, stock or accounts.
   const demo = !isLive();
+  // The live service gets the sample shops too when SAMPLE_SHOPS is on, labelled as samples.
+  const shops = demo ? seed.stores : sampleShops() ? seed.stores.map((s) => ({ ...s, sample: true })) : [];
   const products = new Map<string, Product>(seed.products.map((p) => [p.id, p]));
-  const stores = new Map<string, Store>(demo ? seed.stores.map((s) => [s.id, s]) : []);
-  const stock = new Map<string, Stock>(demo ? Object.entries(seed.stock) : []);
+  const stores = new Map<string, Store>(shops.map((s) => [s.id, s]));
+  const stock = new Map<string, Stock>(shops.length ? Object.entries(seed.stock) : []);
   const users = new Map<string, User>(demo ? seedUsers().map((u) => [u.id, u]) : []);
   const orders = new Map<string, Order>();
   const counters = new Map<string, number>();

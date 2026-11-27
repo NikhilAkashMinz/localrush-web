@@ -1,5 +1,5 @@
 # Render Blueprint: deploys the LocalRush website and API from the Dockerfile, as the live
-# service (login with Google or email through Firebase, no sample data). In Render choose
+# service (login with Google or email through Firebase, no demo accounts). In Render choose
 # New > Blueprint and pick this repository. Render asks once for each value marked
 # "sync: false" (see README, "Going live"), and makes SESSION_SECRET itself.
 services:
@@ -16,6 +16,10 @@ services:
     envVars:
       - key: LOCALRUSH_MODE
         value: live
+      # Start with the 15 sample shops (labelled "Sample") so the site has shops from day one.
+      # Set to "false" before the first start for a site with only the real shops you add.
+      - key: SAMPLE_SHOPS
+        value: "true"
       # MongoDB Atlas connection string, ending in /localrush?retryWrites=true&w=majority
       - key: MONGODB_URI
         sync: false

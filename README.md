@@ -452,7 +452,7 @@ visitors and takes up to a minute to wake; change `plan: free` to `starter` in `
 ### 4. First day
 
 1. Open the site and log in with your admin email (Google), then **Account > Open admin**.
-   No real shops yet? Press **Add sample shops**: the 15 sample Bangalore shops, with stock and
+   The site starts with the 15 sample Bangalore shops (`SAMPLE_SHOPS=true` in `render.yaml`), with stock and
    prices, labelled "Sample" everywhere so nobody takes them for real. Give one an owner (by email)
    to run its orders in a demo, and pause them when real shops join.
 2. Add each shop: name, kind, area, location (stand in the shop and press "Use my location",

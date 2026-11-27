@@ -290,6 +290,23 @@ test('an admin can add the labelled sample shops, and give one an owner to run i
   assert.equal(board[0].id, placed.data.orders[0].id);
 });
 
+test('with SAMPLE_SHOPS=true the live service starts with the sample shops, labelled, and no demo accounts', async () => {
+  process.env.SAMPLE_SHOPS = 'true';
+  try {
+    useFreshMemoryRepo();
+    const catalog = (await call('GET', 'catalog')).data;
+    assert.equal(catalog.stores.length, 15);
+    assert.ok(catalog.stores.every((s: { sample?: boolean }) => s.sample === true));
+    assert.ok(Object.keys(catalog.stock).length > 100);
+    assert.equal((await call('GET', 'demo')).status, 404, 'no demo accounts or numbers');
+    // Ordering from them works straight away.
+    const customer = await login('asha@gmail.com');
+    assert.equal((await call('POST', 'orders', { as: customer, body: orderBody({ cart: { chips: 1 }, mobile: '9876543210' }) })).status, 201);
+  } finally {
+    delete process.env.SAMPLE_SHOPS;
+  }
+});
+
 test('a live server without its own SESSION_SECRET refuses every request', async () => {
   const saved = process.env.SESSION_SECRET;
   delete process.env.SESSION_SECRET;

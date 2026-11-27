@@ -47,6 +47,13 @@ export const adminPhones = () =>
     .map((p) => p.replace(/\D/g, '').slice(-10))
     .filter((p) => /^[6-9]\d{9}$/.test(p));
 
+/**
+ * SAMPLE_SHOPS=true: a live database that starts with no shops gets the 15 sample shops with
+ * their stock and prices, labelled "Sample", so the site has shops from the first visit. The
+ * demo always has them. Admins can also add them later from the admin page.
+ */
+export const sampleShops = () => process.env.SAMPLE_SHOPS === 'true';
+
 /** Contact details shown on the privacy page, so people know whom to ask. */
 export const supportContact = () => process.env.SUPPORT_CONTACT?.trim() || '';
 

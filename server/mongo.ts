@@ -9,7 +9,7 @@ import type { Collection, Db, MongoClient } from 'mongodb';
 import type { Product, Stock, Store } from '../lib/data';
 import { stockKey } from '../lib/data';
 import type { Order } from '../lib/orders';
-import { isLive } from './config';
+import { isLive, sampleShops } from './config';
 import { OLD_PARTNER_NAMES, PARTNER_NAMES, seedCatalogue, seedUsers } from './seed';
 import type { OrderFilter, Repo, User } from './types';
 
@@ -27,9 +27,10 @@ function strip<T>(doc: WithId<T> | null): T | null {
 
 /**
  * Fill an empty database. Every database gets the product catalogue, which shop owners pick
- * their stock from. Only a demo database also gets the sample shops, their stock and the
- * ready-made accounts; a live one starts with no shops, and an admin adds the real ones.
- * Safe to run twice, and on several copies of the server at once.
+ * their stock from. A demo database also gets the sample shops, their stock and the ready-made
+ * accounts. A live one gets the sample shops and stock only with SAMPLE_SHOPS=true, labelled
+ * as samples and with no accounts; otherwise it starts with no shops, and an admin adds the
+ * real ones. Safe to run twice, and on several copies of the server at once.
  */
 async function seedIfEmpty(db: Db) {
   const seed = seedCatalogue();
@@ -42,9 +43,12 @@ async function seedIfEmpty(db: Db) {
     await products.insertMany(seed.products.map((p) => ({ ...p, _id: p.id })), { ordered: false }).catch(ignoreDuplicates);
   }
   const stores = db.collection<WithId<Store>>('stores');
-  if (isLive() || (await stores.estimatedDocumentCount()) > 0) return;
+  const live = isLive();
+  if ((live && !sampleShops()) || (await stores.estimatedDocumentCount()) > 0) return;
   await Promise.all([
-    stores.insertMany(seed.stores.map((s) => ({ ...s, _id: s.id })), { ordered: false }).catch(ignoreDuplicates),
+    stores
+      .insertMany(seed.stores.map((s) => ({ ...s, ...(live ? { sample: true } : {}), _id: s.id })), { ordered: false })
+      .catch(ignoreDuplicates),
     db
       .collection<InventoryDoc>('inventory')
       .insertMany(
@@ -55,10 +59,13 @@ async function seedIfEmpty(db: Db) {
         { ordered: false },
       )
       .catch(ignoreDuplicates),
-    db
-      .collection<WithId<User>>('users')
-      .insertMany(seedUsers().map((u) => ({ ...u, _id: u.id })), { ordered: false })
-      .catch(ignoreDuplicates),
+    // The demo's ready-made accounts log in with any 4 digits, so the live service never gets them.
+    live
+      ? Promise.resolve()
+      : db
+          .collection<WithId<User>>('users')
+          .insertMany(seedUsers().map((u) => ({ ...u, _id: u.id })), { ordered: false })
+          .catch(ignoreDuplicates),
   ]);
 }
 
