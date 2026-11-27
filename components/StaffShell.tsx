@@ -171,8 +171,10 @@ export default function StaffShell({ children }: { children: React.ReactNode }) 
       <header className="st-top">
         <div className="st-top-in">
           <Link href="/" className="brand" aria-label="LocalRush customer site">
-            <Mark size={26} />
-            <span>LocalRush</span>
+            <Mark size={30} />
+            {/* The white-lettered logo, for the dark band at the top. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="brand-logo" src="/brand/localrush-logo-dark.png" alt="" width={630} height={160} />
           </Link>
           <span className="st-title">{title}</span>
 

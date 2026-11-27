@@ -9,7 +9,7 @@ import type { Collection, Db, MongoClient } from 'mongodb';
 import type { Product, Stock, Store } from '../lib/data';
 import { stockKey } from '../lib/data';
 import type { Order } from '../lib/orders';
-import { seedCatalogue, seedUsers } from './seed';
+import { OLD_PARTNER_NAMES, PARTNER_NAMES, seedCatalogue, seedUsers } from './seed';
 import type { OrderFilter, Repo, User } from './types';
 
 type WithId<T> = T & { _id: string };
@@ -56,6 +56,24 @@ async function seedIfEmpty(db: Db) {
   ]);
 }
 
+/**
+ * The demo delivery partners were renamed. A database made before that still has the old
+ * names, on the accounts and on the deliveries they made: change those. A name someone changed
+ * themselves is left alone, and once done this changes nothing.
+ */
+async function renameDemoPartners(db: Db) {
+  const users = db.collection<WithId<User>>('users');
+  const orders = db.collection<WithId<Order>>('orders');
+  await Promise.all(
+    PARTNER_NAMES.map(async (name, i) => {
+      const id = 'u-partner-' + (i + 1);
+      const old = OLD_PARTNER_NAMES[i];
+      await users.updateOne({ _id: id, name: old }, { $set: { name } });
+      await orders.updateMany({ partnerId: id, partnerName: old }, { $set: { partnerName: name } });
+    }),
+  );
+}
+
 /** `reset` empties the database first. Only the tests use it. */
 export async function createMongoRepo(uri: string, options: { reset?: boolean } = {}): Promise<Repo> {
   const { MongoClient: Client } = await import('mongodb');
@@ -95,6 +113,7 @@ export async function createMongoRepo(uri: string, options: { reset?: boolean } 
     inventory.createIndex({ storeId: 1 }),
   ]);
   await seedIfEmpty(db);
+  await renameDemoPartners(db);
 
   return {
     kind: 'mongo',

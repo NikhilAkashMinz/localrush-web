@@ -9,7 +9,7 @@ import { phoneText } from '../format';
 import { useApp } from '../store';
 import { color, radius, type } from '../theme';
 import type { DemoAccount } from '../types';
-import { Button, Icon, LogoMark } from '../ui';
+import { Button, Icon, Wordmark } from '../ui';
 import ServerSheet from './ServerSheet';
 
 export default function LoginScreen() {
@@ -74,8 +74,8 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={st.brand}>
-          <LogoMark size={68} />
-          <Text style={st.title}>LocalRush Partner</Text>
+          <Wordmark width={250} />
+          <Text style={st.title}>Delivery Partner</Text>
           <Text style={st.lead}>Deliver orders from neighbourhood shops near you, and get paid for every km you ride.</Text>
         </View>
 

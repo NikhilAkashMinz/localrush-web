@@ -63,7 +63,8 @@ function Header() {
       <div className="top-in">
         <Link href="/" className="brand" aria-label="LocalRush home">
           <Mark />
-          <span>LocalRush</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="brand-logo" src="/brand/localrush-logo-light.png" alt="" width={630} height={160} />
         </Link>
 
         <button type="button" className="place-btn" onClick={() => actions.open('place')}>
@@ -482,8 +483,8 @@ function Footer() {
       <div className="foot-in">
         <div>
           <span className="brand brand-foot">
-            <Mark size={24} />
-            <span>LocalRush</span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="brand-logo" src="/brand/localrush-logo-light.png" alt="LocalRush" width={630} height={160} />
           </span>
           <p>Shops you already know, delivered from within 5 km.</p>
         </div>

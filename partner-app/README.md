@@ -45,14 +45,14 @@ The laptop needs Node.js 22.13 or newer (24.3 or newer on Node 24, or Node 26): 
    address, for example `http://192.168.1.5:3000`. On Windows, `ipconfig` shows the laptop's
    address as "IPv4 Address" under Wi-Fi.
 
-5. Log in as a demo partner: tap **Ravi K.** (`9100000001`), then **Log in**. Go online and allow
+5. Log in as a demo partner: tap **Piyush** (`9100000001`), then **Log in**. Go online and allow
    location when the phone asks.
 
 ## Show a whole delivery
 
 | Where | Do this |
 |---|---|
-| Phone | Log in as Ravi K. and go online |
+| Phone | Log in as Piyush and go online |
 | Laptop, `localhost:3000` | As a customer at PES University, order milk and bread |
 | Laptop, `localhost:3000/dashboard` | As Sri Lakshmi (`9000000001`): Accept, then Packed and ready |
 | Phone | The phone buzzes: **New delivery near you**. Tap **Take this delivery** |
@@ -88,6 +88,10 @@ The laptop needs Node.js 22.13 or newer (24.3 or newer on Node 24, or Node 26): 
   by itself; if a server answers that is not LocalRush, the app says so.
 - **On the Android Studio emulator**: the app finds the laptop as usual. If it cannot, enter
   `http://10.0.2.2:3000`, which is how the emulator reaches the laptop it runs on.
+- **No deliveries on the emulator**: the emulator's GPS starts in California, and deliveries
+  come only from shops within 6 km, so the app says "No LocalRush shops near you". Set the
+  emulator's position to Bangalore (the emulator's ⋯ menu, then **Location**: search for PES
+  University and press **Set location**), or tap **Choose an area** in the app.
 - **`npx expo start --tunnel`**: the app still loads, but it cannot work out the server address.
   Enter it on the login screen; the phone must still be able to reach the laptop on port 3000.
 - **No LIVE at the top of the app**: the app still works, but checks for changes every 4 seconds

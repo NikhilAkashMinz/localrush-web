@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { errorText } from '../api';
 import { ago, areaPart, itemCount, km, plural, rupee } from '../format';
+import { crow } from '../geo';
 import { useNow } from '../hooks';
 import { deliveredAt, packedAt, PAY_BASE, PAY_PER_KM, payOf } from '../pay';
 import { useApp } from '../store';
@@ -27,8 +28,16 @@ function today(orders: Order[], now: number) {
 
 const firstName = (name: string) => name.split(/\s+/)[0] ?? name;
 
+/** Deliveries come only from shops this close by road, as on the server (PARTNER_RANGE_KM). */
+const RANGE_KM = 6;
+
+/** "1.2 km", or "13,987 km" for somewhere far away. */
+const distance = (n: number) => (n < 100 ? km(n) : `${Math.round(n).toLocaleString('en-IN')} km`);
+/** Roads add about 30% to the straight line (as roadKm in geo.ts); across countries, only the straight line means anything. */
+const ROAD = 1.3;
+
 export default function JobsScreen() {
-  const { user, jobs, orders, setOnline, refresh, notify, reachable, problem, gpsWanted, gps } = useApp();
+  const { user, jobs, orders, shops, setOnline, refresh, notify, reachable, problem, gpsWanted, gps } = useApp();
   const [toggling, setToggling] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [areaOpen, setAreaOpen] = useState(false);
@@ -36,6 +45,11 @@ export default function JobsScreen() {
   if (!user) return null;
   const online = !!user.online;
   const sum = today(orders, now);
+  // How far the nearest LocalRush shop is. Far from every shop (for example on the Android
+  // emulator, whose GPS starts in California), no delivery can ever show up: say why.
+  const here = user.place;
+  const nearestKm = here ? Math.min(Infinity, ...Object.values(shops).map((s) => crow(here.lat, here.lng, s.lat, s.lng))) : Infinity;
+  const farAway = Object.keys(shops).length > 0 && nearestKm * ROAD > RANGE_KM;
   // If GPS is wanted but not working, say so at the top; otherwise the jobs come first.
   const locationFirst = gpsProblem(gpsWanted, user.online, gps);
 
@@ -111,11 +125,19 @@ export default function JobsScreen() {
           {online ? (
             <>
               <SectionTitle title="Deliveries near you" right={<Pill text={String(jobs.length)} tone={jobs.length ? 'gold' : 'neutral'} />} />
-              {jobs.length === 0 ? (
+              {jobs.length === 0 && farAway ? (
+                <Empty
+                  icon="map-marker-distance"
+                  title="No LocalRush shops near you"
+                  body={`The nearest shop is ${distance(nearestKm < 100 ? nearestKm * ROAD : nearestKm)} from where ${gps === 'on' ? 'your phone says you are' : 'your area is'}, and deliveries come only from shops within ${RANGE_KM} km. On the Android Studio emulator the GPS starts in California: set it to Bangalore (the emulator's ⋯ menu, then Location), or choose an area.`}
+                >
+                  <Button title="Choose an area" icon="map-marker-outline" kind="secondary" onPress={() => setAreaOpen(true)} style={st.emptyButton} />
+                </Empty>
+              ) : jobs.length === 0 ? (
                 <Empty
                   icon="bell-ring-outline"
                   title="Waiting for orders"
-                  body="Packed orders at shops within 6 km of you appear here by themselves. Your phone buzzes when one arrives."
+                  body={`Packed orders at shops within ${RANGE_KM} km of you appear here by themselves. Your phone buzzes when one arrives.`}
                 />
               ) : (
                 jobs.map((j) => <JobCard key={j.id} job={j} now={now} />)

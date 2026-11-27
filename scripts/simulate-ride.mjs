@@ -6,7 +6,7 @@
 // themselves (taking the order, "picked up", the customer's code) are still done in the partner
 // app or on the delivery partner screen, as usual.
 //
-//   npm run demo:ride                                  Ravi K. (9100000001), 30 km/h
+//   npm run demo:ride                                  Piyush (9100000001), 30 km/h
 //   npm run demo:ride -- --phone 9100000002 --speed 40
 //   npm run demo:ride -- --server http://192.168.1.5:3000
 //

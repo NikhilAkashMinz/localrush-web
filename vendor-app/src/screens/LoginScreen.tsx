@@ -9,7 +9,7 @@ import { phoneText } from '../format';
 import { useApp } from '../store';
 import { color, radius, type } from '../theme';
 import type { DemoAccount } from '../types';
-import { Button, Icon, LogoMark } from '../ui';
+import { Button, Icon, Wordmark } from '../ui';
 import ServerSheet from './ServerSheet';
 
 /** How many demo shops to show before "Show all". */
@@ -90,13 +90,8 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={st.brand}>
-          <View>
-            <LogoMark size={68} />
-            <View style={st.badge}>
-              <Icon name="storefront" size={18} tint={color.deep} />
-            </View>
-          </View>
-          <Text style={st.title}>LocalRush Vendor</Text>
+          <Wordmark width={250} />
+          <Text style={st.title}>Vendor</Text>
           <Text style={st.lead}>Take orders from customers near your shop, pack them for pickup, and keep your stock up to date.</Text>
         </View>
 
@@ -215,19 +210,6 @@ const st = StyleSheet.create({
   scroll: { paddingHorizontal: 18, flexGrow: 1 },
   flex: { flex: 1 },
   brand: { alignItems: 'center', gap: 10, marginBottom: 24 },
-  badge: {
-    position: 'absolute',
-    right: -6,
-    bottom: -4,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: color.gold,
-    borderWidth: 3,
-    borderColor: color.deep,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   title: { color: color.white, fontSize: 28, fontWeight: '800', marginTop: 6 },
   lead: { color: color.onDeep, fontSize: type.body, textAlign: 'center', lineHeight: 21, maxWidth: 330 },
   card: { backgroundColor: color.card, borderRadius: 22, padding: 18 },

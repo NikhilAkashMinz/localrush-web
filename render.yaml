@@ -1,0 +1,19 @@
+# Render Blueprint: deploys the LocalRush website and API from the Dockerfile.
+# In Render choose New > Blueprint and pick this repository. Render asks for MONGODB_URI once
+# (the MongoDB Atlas connection string, ending in /localrush?...) and makes SESSION_SECRET itself.
+services:
+  - type: web
+    name: localrush
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: PORT
+        value: "3000"

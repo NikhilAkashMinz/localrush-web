@@ -5,6 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { ComponentProps, ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Pressable,
@@ -26,32 +27,21 @@ export function Icon({ name, size = 22, tint = color.ink, style }: { name: IconN
   return <MaterialCommunityIcons name={name} size={size} color={tint} style={style} />;
 }
 
-/** The LocalRush mark: a white centre in a ring of gold dots, the 5 km radius. */
+/** The LocalRush mark: the orange map pin with a shop in it (the logo without its words). `size` is its height. */
 export function LogoMark({ size = 40 }: { size?: number }) {
-  const dots = 12;
-  const dot = Math.max(2.5, size * 0.085);
-  const ring = size * 0.34;
+  return <Image source={require('../assets/logo-mark.png')} style={{ width: (size * 4) / 5, height: size }} accessibilityIgnoresInvertColors />;
+}
+
+/** The whole LocalRush logo, with white letters for the dark green screens. `width` sets its size. */
+export function Wordmark({ width = 240 }: { width?: number }) {
   return (
-    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color.teal, alignItems: 'center', justifyContent: 'center' }}>
-      {Array.from({ length: dots }, (_, i) => {
-        const a = (i / dots) * Math.PI * 2;
-        return (
-          <View
-            key={i}
-            style={{
-              position: 'absolute',
-              width: dot,
-              height: dot,
-              borderRadius: dot / 2,
-              backgroundColor: color.gold,
-              left: size / 2 + ring * Math.cos(a) - dot / 2,
-              top: size / 2 + ring * Math.sin(a) - dot / 2,
-            }}
-          />
-        );
-      })}
-      <View style={{ width: size * 0.28, height: size * 0.28, borderRadius: size, backgroundColor: color.white }} />
-    </View>
+    <Image
+      source={require('../assets/logo-wordmark.png')}
+      style={{ width, height: (width * 229) / 900 }}
+      accessibilityRole="image"
+      accessibilityLabel="LocalRush"
+      accessibilityIgnoresInvertColors
+    />
   );
 }
 

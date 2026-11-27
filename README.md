@@ -80,7 +80,7 @@ in or out of one never changes the other two. Open three tabs:
 |---|---|---|
 | Customer | `localhost:3000` then Log in | Any name and any new 10-digit mobile number |
 | Shop owner | `localhost:3000/dashboard` | Choose a shop from the list (Sri Lakshmi is `9000000001`) |
-| Delivery partner | `localhost:3000/partner` | Choose a partner from the list (Ravi K. is `9100000001`) |
+| Delivery partner | `localhost:3000/partner` | Choose a partner from the list (Piyush is `9100000001`) |
 
 Any 4-digit code logs in (no SMS is sent yet). Each login only accepts its own kind of
 account: a shop owner's number is refused on the customer login, and so on. You never need to
@@ -114,7 +114,8 @@ dashboard" link, and the dashboard login lists every shop. The numbers are:
 | 9000000007 | BSK Bakery & Sweets | 9000000015 | Koramangala Organic Co-op |
 | 9000000008 | Jayanagar Super Bazaar | | |
 
-Delivery partners are `9100000001` to `9100000004`. More things to show:
+Delivery partners are Piyush (`9100000001`), Saksham (`9100000002`), Priyanshu (`9100000003`)
+and Pratham (`9100000004`). More things to show:
 
 - **Cannot take it** on the dashboard sends the order to the next-best shop; the customer sees a note.
 - **Stock and prices**: change a price or mark something out of stock and the customer site updates.
@@ -136,7 +137,7 @@ npx expo start
 ```
 
 Scan the QR code with **Expo Go** on a phone that is on the same Wi-Fi as the laptop, and log in
-as Ravi K. (`9100000001`). The app finds the server by itself. `partner-app/README.md` has the
+as Piyush (`9100000001`). The app finds the server by itself. `partner-app/README.md` has the
 whole demo and what to do if the phone cannot reach the laptop.
 
 While a delivery is on its way, the app sends the phone's GPS position every few seconds and
@@ -214,7 +215,7 @@ It opens by itself when a partner takes the order; the 3D view is one tap away.
   new spot, an arrow on it points the way the partner is going, and the way they have come
   since taking the order is drawn behind them. The map can be dragged and zoomed; the target
   button shows the whole delivery again.
-- **Distance and time.** "Ravi K. is 620 m from you" and "About 2 min away", and the headline
+- **Distance and time.** "Piyush is 620 m from you" and "About 2 min away", and the headline
   at the top of the page, come from where the partner really is (by road, at about 20 km/h).
   On the way to the shop, the time counts the ride to the shop and on to the customer.
 - **When the phone goes quiet.** After a minute with no new position the map says **LAST
@@ -227,21 +228,21 @@ It opens by itself when a partner takes the order; the 3D view is one tap away.
 ### Show it indoors: `npm run demo:ride`
 
 Real GPS needs the partner's phone outside. To show live tracking in a room, a script can play
-the partner: it logs in as Ravi K. the way the partner app does and, while he has a delivery
+the partner: it logs in as Piyush the way the partner app does and, while he has a delivery
 under way, sends a position every 2 seconds, riding to the shop and then on to the customer.
 The buttons are still pressed by you.
 
 1. Start the site with `npm run dev`, and in a second terminal `npm run demo:ride`.
 2. Customer: at PES University, order milk and bread, and stay on the order page.
 3. Shop owner (`/dashboard`, Sri Lakshmi): Accept, then Packed and ready.
-4. Partner (`/partner`, Ravi K.): take the delivery. The customer's page switches to the live
+4. Partner (`/partner`, Piyush): take the delivery. The customer's page switches to the live
    map and the scooter starts to move.
 5. When the script says **at the shop**, press "I have picked it up". When it says **at the
    customer's door**, enter the customer's code.
 
 `npm run demo:ride -- --speed 40` changes the speed (km/h), `--phone 9100000002` uses another
 demo partner, `--server http://192.168.1.5:3000` another server, and `--once` stops after one
-delivery. If Ravi K. is also logged in to the partner app with GPS on, his phone's position mixes
+delivery. If Piyush is also logged in to the partner app with GPS on, his phone's position mixes
 with the script's: in the app, choose an area instead (Account, Your location, Change).
 
 ## API

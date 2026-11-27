@@ -358,8 +358,11 @@ h3 {
   letter-spacing: -0.02em;
 }
 
-.brand > span {
+/* The logo: the pin alone on a phone, the whole logo with its words from 760 px. */
+.brand-logo {
   display: none;
+  height: 40px;
+  width: auto;
 }
 
 .place-btn {
@@ -487,8 +490,11 @@ h3 {
     padding-top: 12px;
     padding-bottom: 12px;
   }
-  .brand > span {
-    display: inline;
+  .brand-logo {
+    display: block;
+  }
+  .brand > .mark {
+    display: none;
   }
   .place-btn {
     max-width: 230px;
@@ -2689,8 +2695,9 @@ h3 {
   margin-bottom: 4px;
 }
 
-.brand-foot > span {
-  display: inline;
+.brand-foot .brand-logo {
+  display: block;
+  height: 34px;
 }
 
 .foot nav {

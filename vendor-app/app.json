@@ -14,7 +14,7 @@
     "android": {
       "package": "com.localrush.vendor",
       "adaptiveIcon": {
-        "backgroundColor": "#073F3D",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },

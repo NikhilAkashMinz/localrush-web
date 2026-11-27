@@ -4,7 +4,10 @@ import { PLACES } from '../lib/data';
 import { SAMPLE } from '../lib/sample';
 import type { User } from './types';
 
-const PARTNER_NAMES = ['Ravi K.', 'Manjunath S.', 'Imran P.', 'Deepa R.'];
+/** The demo delivery partners, u-partner-1 to u-partner-4, on 9100000001 to 9100000004. */
+export const PARTNER_NAMES = ['Piyush', 'Saksham', 'Priyanshu', 'Pratham'];
+/** Their names before, kept so that a database made with them can be updated (see mongo.ts). */
+export const OLD_PARTNER_NAMES = ['Ravi K.', 'Manjunath S.', 'Imran P.', 'Deepa R.'];
 
 /** Shop owner numbers are 9000000001 onwards, in the order the shops are listed. */
 export const ownerPhone = (index: number) => String(9000000001 + index);

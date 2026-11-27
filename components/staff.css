@@ -29,6 +29,10 @@
   font-size: 19px;
 }
 
+.st-top .brand-logo {
+  height: 32px;
+}
+
 .st-title {
   font-weight: 700;
   padding-left: 14px;

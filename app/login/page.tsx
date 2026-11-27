@@ -85,7 +85,7 @@ function LoginForm() {
         </div>
 
         <div className="lg-form" ref={form} onFocus={() => setTyping(true)} onBlur={() => setTyping(false)}>
-          <Mark size={40} />
+          <Mark size={48} />
           <div>
             <h1>{step === 'details' ? 'Welcome to LocalRush' : 'Enter the code'}</h1>
             <p className="quiet">

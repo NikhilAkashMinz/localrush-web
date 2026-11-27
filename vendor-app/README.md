@@ -61,8 +61,8 @@ The laptop needs Node.js 22.13 or newer (24.3 or newer on Node 24, or Node 26): 
 | Phone | Log in as Sri Lakshmi Provision Store. The Orders tab says **Taking orders** |
 | Laptop, `localhost:3000` | As a customer at PES University, order milk and bread |
 | Phone | The phone buzzes: **New order**. Tap **Accept**, tick the items, then **Packed and ready** |
-| Laptop, `localhost:3000/partner` (or the partner app) | As Ravi K. (`9100000001`): go online and take the delivery |
-| Phone | The order shows **Ravi K. is coming to collect it** |
+| Laptop, `localhost:3000/partner` (or the partner app) | As Piyush (`9100000001`): go online and take the delivery |
+| Phone | The order shows **Piyush is coming to collect it** |
 | Partner | Pick it up and deliver it with the customer's code |
 | Phone | **Delivered** under Finished today; the **Sales** tab shows what it sold for |
 | Phone, **Products** tab | Change a price or the stock, then look at the shop on the website: it has changed |

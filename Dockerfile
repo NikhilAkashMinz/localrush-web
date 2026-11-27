@@ -33,6 +33,8 @@ ENV APP_VERSION=$APP_VERSION
 
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
+# Files served as they are, such as the logo (public/brand).
+COPY --from=build --chown=node:node /app/public ./public
 
 # Run as the unprivileged "node" user (uid 1000) that the base image provides.
 USER node
