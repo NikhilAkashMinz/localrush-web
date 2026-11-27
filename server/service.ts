@@ -9,6 +9,8 @@ import { partnerPay, RIDER_FRESH_MS, type Order, type OrderLine, type Status } f
 import { earningsReport, isPeriod, salesReport, type EarningsReport, type SalesReport } from '../lib/reports';
 import { planOrder, type Line, type Mode } from '../lib/select';
 import { clock } from './clock';
+import { adminPhones, firebaseConfig, isLive } from './config';
+import { verifyIdToken } from './firebase';
 import type { Address, Repo, TrailPoint, User } from './types';
 
 export class ApiError extends Error {
@@ -62,8 +64,25 @@ export async function catalogue(repo: Repo): Promise<Dataset> {
 // ---------- Accounts ----------
 
 export function publicUser(u: User) {
-  return { id: u.id, name: u.name, phone: u.phone, role: u.role, storeId: u.storeId, online: u.online, place: u.place, addresses: u.addresses };
+  return {
+    id: u.id,
+    name: u.name,
+    phone: u.phone,
+    role: u.role,
+    storeId: u.storeId,
+    online: u.online,
+    place: u.place,
+    addresses: u.addresses,
+    ...(isAdmin(u) ? { admin: true } : {}),
+  };
 }
+
+/**
+ * Admins add the real shops and delivery partners. An admin is a customer account whose
+ * number is in ADMIN_PHONES, and only on the live service, where logging in takes a real
+ * SMS code: in the demo any 4 digits would make anyone an admin.
+ */
+export const isAdmin = (u: User | null) => !!u && u.role === 'customer' && isLive() && adminPhones().includes(u.phone);
 
 const KIND: Record<User['role'], string> = { customer: 'customer', shop: 'shop owner', partner: 'delivery partner' };
 const WHERE: Record<User['role'], string> = { customer: 'the customer site', shop: 'the shop dashboard', partner: 'the delivery partner screen' };
@@ -73,20 +92,46 @@ const WHERE: Record<User['role'], string> = { customer: 'the customer site', sho
  * dashboard and the delivery screen each log in only their own kind of account. That keeps
  * the three logins fully separate, so they can all be open in one browser.
  */
-export async function login(repo: Repo, input: { name?: unknown; phone?: unknown; code?: unknown }, seat: User['role'] = 'customer'): Promise<User> {
-  if (typeof input.phone !== 'string' || !/^[6-9]\d{9}$/.test(input.phone)) throw new ApiError(400, 'Enter a 10-digit mobile number.');
-  // Demo login: there is no SMS provider yet, so any 4 digits are accepted.
-  if (typeof input.code !== 'string' || !/^\d{4}$/.test(input.code)) throw new ApiError(400, 'Enter the 4-digit code.');
-  const existing = await repo.userByPhone(input.phone);
+export async function login(
+  repo: Repo,
+  input: { name?: unknown; phone?: unknown; code?: unknown; idToken?: unknown },
+  seat: User['role'] = 'customer',
+): Promise<User> {
+  const phone = await provenPhone(input);
+  const existing = await repo.userByPhone(phone);
   if (existing && existing.role !== seat) {
     throw new ApiError(409, `That number belongs to a ${KIND[existing.role]}. Log in on ${WHERE[existing.role]} instead.`, 'wrong-seat');
   }
   if (existing) return existing;
   if (seat !== 'customer') throw new ApiError(404, `No ${KIND[seat]} account uses that number.`, 'unknown');
   if (!isText(input.name, 2, 60)) throw new ApiError(400, 'Enter your name.');
-  const user: User = { id: id('u-', 6), name: input.name.trim(), phone: input.phone, role: 'customer', addresses: [], createdAt: clock.now() };
+  const user: User = { id: id('u-', 6), name: input.name.trim(), phone, role: 'customer', addresses: [], createdAt: clock.now() };
   await repo.putUser(user);
   return user;
+}
+
+/**
+ * The mobile number the person has shown they own. With SMS login that is the number inside
+ * Firebase's signed token, after the person typed the code Firebase texted them. In the demo,
+ * the number they typed, with any 4 digits; the live service never accepts that.
+ */
+async function provenPhone(input: { phone?: unknown; code?: unknown; idToken?: unknown }): Promise<string> {
+  if (typeof input.idToken === 'string' && input.idToken) {
+    const firebase = firebaseConfig();
+    if (!firebase) throw new ApiError(503, 'Login by SMS is not set up on this server yet.', 'no-sms');
+    try {
+      return (await verifyIdToken(input.idToken, firebase.projectId)).phone;
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      const text = why === 'not an Indian mobile number' ? 'Only Indian mobile numbers (+91) can log in.' : 'That login could not be confirmed. Ask for a new code.';
+      throw new ApiError(401, text, 'otp');
+    }
+  }
+  if (isLive()) throw new ApiError(400, 'Log in with the code we send you by SMS.', 'sms-only');
+  if (typeof input.phone !== 'string' || !/^[6-9]\d{9}$/.test(input.phone)) throw new ApiError(400, 'Enter a 10-digit mobile number.');
+  // Demo login: any 4 digits are accepted.
+  if (typeof input.code !== 'string' || !/^\d{4}$/.test(input.code)) throw new ApiError(400, 'Enter the 4-digit code.');
+  return input.phone;
 }
 
 export async function rename(repo: Repo, user: User, name: unknown): Promise<User> {

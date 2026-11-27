@@ -22,6 +22,8 @@ export type Me = {
   online?: boolean;
   place?: Place;
   addresses: Address[];
+  /** May add shops and delivery partners (the admin page). Only on the live service. */
+  admin?: boolean;
 };
 
 /** Which seat a page address belongs to. */

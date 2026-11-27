@@ -4,6 +4,7 @@
 import type { Product, Stock, Store } from '../lib/data';
 import { stockKey } from '../lib/data';
 import type { Order } from '../lib/orders';
+import { isLive } from './config';
 import { seedCatalogue, seedUsers } from './seed';
 import type { OrderFilter, Repo, User } from './types';
 
@@ -11,10 +12,12 @@ const copy = <T>(v: T): T => structuredClone(v);
 
 export function createMemoryRepo(): Repo {
   const seed = seedCatalogue();
+  // The live service starts with the product catalogue only: no sample shops, stock or accounts.
+  const demo = !isLive();
   const products = new Map<string, Product>(seed.products.map((p) => [p.id, p]));
-  const stores = new Map<string, Store>(seed.stores.map((s) => [s.id, s]));
-  const stock = new Map<string, Stock>(Object.entries(seed.stock));
-  const users = new Map<string, User>(seedUsers().map((u) => [u.id, u]));
+  const stores = new Map<string, Store>(demo ? seed.stores.map((s) => [s.id, s]) : []);
+  const stock = new Map<string, Stock>(demo ? Object.entries(seed.stock) : []);
+  const users = new Map<string, User>(demo ? seedUsers().map((u) => [u.id, u]) : []);
   const orders = new Map<string, Order>();
   const counters = new Map<string, number>();
   const cached = new Map<string, { at: number; value: unknown }>();
@@ -30,6 +33,9 @@ export function createMemoryRepo(): Repo {
     async patchStore(id, patch) {
       const s = stores.get(id);
       if (s) stores.set(id, { ...s, ...patch });
+    },
+    async putStore(s) {
+      stores.set(s.id, copy(s));
     },
     async putProduct(p) {
       products.set(p.id, copy(p));
@@ -60,6 +66,9 @@ export function createMemoryRepo(): Repo {
     },
     async putUser(u) {
       users.set(u.id, copy(u));
+    },
+    async usersByRole(role) {
+      return copy([...users.values()].filter((u) => u.role === role).sort((a, b) => a.createdAt - b.createdAt));
     },
 
     async insertOrder(o) {

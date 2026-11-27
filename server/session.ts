@@ -5,6 +5,7 @@
 // same kind of signed value as a token and send it in an "Authorization: Bearer ..." header.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { isLive } from './config';
 
 /**
  * A "seat" is which side of LocalRush a page belongs to. Each seat has its own login cookie,
@@ -41,10 +42,16 @@ export function seatOf(request: Request): Seat {
 }
 
 function secret() {
-  // Set SESSION_SECRET to a long random string in any real deployment. The fallback is the
-  // same on every copy of the server so logins keep working in development and in the demo.
-  return process.env.SESSION_SECRET || 'localrush-demo-secret-change-me';
+  // A live server must have its own SESSION_SECRET (server/api.ts refuses requests without it):
+  // the fallback is public, so anyone could sign a login with it. It is only for the demo and
+  // development, where it is the same on every copy so logins keep working.
+  const own = process.env.SESSION_SECRET;
+  if (!own && isLive()) throw new Error('SESSION_SECRET is not set.');
+  return own || 'localrush-demo-secret-change-me';
 }
+
+/** On the live service the cookie is only ever sent over HTTPS. */
+const secure = () => (isLive() ? '; Secure' : '');
 
 const sign = (value: string) => createHmac('sha256', secret()).update(value).digest('base64url');
 
@@ -55,10 +62,10 @@ function signed(userId: string, seat?: Seat) {
 }
 
 export function sessionCookie(userId: string, seat: Seat) {
-  return `${cookieName(seat)}=${signed(userId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE}`;
+  return `${cookieName(seat)}=${signed(userId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE}${secure()}`;
 }
 
-export const clearCookie = (seat: Seat) => `${cookieName(seat)}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+export const clearCookie = (seat: Seat) => `${cookieName(seat)}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure()}`;
 
 /** A login token for the phone app. It is valid for 30 days, like the cookie, and only on this seat. */
 export const sessionToken = (userId: string, seat: Seat) => signed(userId, seat);

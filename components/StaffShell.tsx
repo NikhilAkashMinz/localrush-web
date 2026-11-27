@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
+import { usePhoneLogin } from '@/lib/firebase';
 import { store } from '@/lib/data';
 import { actions, useStore } from '@/lib/state';
 import { Mark } from './Icons';
@@ -23,15 +24,22 @@ const SHOP_TABS = [
 
 type Account = { role: string; name: string; phone: string; storeId?: string };
 
-/** The login for one staff screen. It only accepts that screen's kind of account. */
+/**
+ * The login for one staff screen. It only accepts that screen's kind of account. On the live
+ * service it sends a real SMS code; in the demo any 4 digits work and the ready-made accounts
+ * are offered in a list.
+ */
 function StaffLogin({ wants, shopId, current, onStay }: { wants: 'shop' | 'partner'; shopId: string | null; current?: string; onStay: () => void }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
+  const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const sms = usePhoneLogin('st-captcha');
 
-  // The ready-made accounts, so the project can be tried without typing numbers.
+  // The demo's ready-made accounts, so it can be tried without typing numbers. The live
+  // service answers 404 here and lists nobody.
   useEffect(() => {
     let dead = false;
     api<{ accounts: Account[] }>('GET', 'demo')
@@ -48,14 +56,30 @@ function StaffLogin({ wants, shopId, current, onStay }: { wants: 'shop' | 'partn
     };
   }, [wants, shopId]);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!/^[6-9]\d{9}$/.test(phone)) return setError('Enter your 10-digit mobile number, or choose an account from the list.');
-    if (!/^\d{4}$/.test(code)) return setError('Enter the 4-digit code. Any 4 digits work in this demo.');
+  const send = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (busy) return;
+    if (!/^[6-9]\d{9}$/.test(phone)) return setError('Enter your 10-digit mobile number.');
+    if (sms.off) return setError('Logging in is not open yet. Please try again later.');
     setError('');
     setBusy(true);
     try {
-      const user = await actions.login({ name: '', phone, code });
+      await sms.send(phone);
+      if (step === 'code') actions.toast('A new code is on its way');
+      setStep('code');
+    } catch (err) {
+      setError(errorText(err));
+    }
+    setBusy(false);
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (code.length !== sms.codeLength) return setError(`Enter the ${sms.codeLength}-digit code.`);
+    setError('');
+    setBusy(true);
+    try {
+      const user = await actions.login({ name: '', ...(await sms.proof(phone, code)) });
       actions.toast(`Logged in as ${user.name.replace(' (owner)', '')}`);
     } catch (err) {
       setError(errorText(err));
@@ -66,7 +90,7 @@ function StaffLogin({ wants, shopId, current, onStay }: { wants: 'shop' | 'partn
   const wanted = accounts.find((a) => a.storeId && a.storeId === shopId);
 
   return (
-    <form className="st-gate" onSubmit={submit} noValidate>
+    <form className="st-gate" onSubmit={step === 'phone' ? send : submit} noValidate>
       <h1>{wants === 'shop' ? 'Shop owner login' : 'Delivery partner login'}</h1>
       {current && wanted ? (
         <p>
@@ -83,48 +107,92 @@ function StaffLogin({ wants, shopId, current, onStay }: { wants: 'shop' | 'partn
         </p>
       )}
 
-      {accounts.length > 0 && (
-        <label className="field">
-          <span>{wants === 'shop' ? 'Your shop' : 'Your name'} (demo accounts)</span>
-          <select value={accounts.some((a) => a.phone === phone) ? phone : ''} onChange={(e) => setPhone(e.target.value)}>
-            <option value="">Choose…</option>
-            {accounts.map((a) => (
-              <option key={a.phone} value={a.phone}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
+      {step === 'phone' ? (
+        <>
+          {accounts.length > 0 && (
+            <label className="field">
+              <span>{wants === 'shop' ? 'Your shop' : 'Your name'} (demo accounts)</span>
+              <select value={accounts.some((a) => a.phone === phone) ? phone : ''} onChange={(e) => setPhone(e.target.value)}>
+                <option value="">Choose…</option>
+                {accounts.map((a) => (
+                  <option key={a.phone} value={a.phone}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="field">
+            <span>Mobile number</span>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+              inputMode="numeric"
+              autoComplete="tel-national"
+              placeholder="10 digits"
+            />
+          </label>
+          {sms.config?.mode === 'live' && (
+            <p className="quiet small">
+              Use the number LocalRush registered for your {wants === 'shop' ? 'shop' : 'deliveries'}. New here? Ask the
+              LocalRush team to add you.
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          <label className="field">
+            <span>
+              {sms.codeLength}-digit code {sms.sms ? `sent by SMS to +91 ${phone}` : ''}
+            </span>
+            <input
+              className="code"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, sms.codeLength))}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+            />
+          </label>
+          <p className="quiet small">
+            {sms.sms ? (
+              <button type="button" className="link" disabled={busy} onClick={() => void send()}>
+                No SMS? Send the code again
+              </button>
+            ) : (
+              'Demo login: no SMS is sent, so any 4 digits work. '
+            )}{' '}
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                setStep('phone');
+                setCode('');
+                setError('');
+              }}
+            >
+              Change number
+            </button>
+          </p>
+        </>
       )}
-      <label className="field">
-        <span>Mobile number</span>
-        <input
-          value={phone}
-          onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-          inputMode="numeric"
-          autoComplete="off"
-          placeholder="10 digits"
-        />
-      </label>
-      <label className="field">
-        <span>4-digit code</span>
-        <input
-          className="code"
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-          inputMode="numeric"
-          autoComplete="off"
-        />
-      </label>
-      <p className="quiet small">Demo login: no SMS is sent yet, so any 4 digits work.</p>
+
       {error && (
         <p className="warn" role="alert">
           {error}
         </p>
       )}
-      <button type="submit" className="btn btn-wide" disabled={busy}>
-        {busy ? 'Logging you in…' : 'Log in'}
+      <button type="submit" className="btn btn-wide" disabled={busy || !sms.config}>
+        {busy ? (step === 'phone' ? 'Sending the code…' : 'Logging you in…') : step === 'phone' ? 'Send code' : 'Log in'}
       </button>
+      <p className="quiet small">
+        By continuing you agree to the{' '}
+        <Link href="/privacy" className="link">
+          terms and privacy policy
+        </Link>
+        .
+      </p>
+      <div id="st-captcha" />
     </form>
   );
 }

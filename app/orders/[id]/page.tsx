@@ -8,6 +8,7 @@ import { CheckIcon } from '@/components/Icons';
 import LiveTrackMap, { ARRIVING_KM, LIVE_MS, liveEta } from '@/components/LiveTrackMap';
 import { TrackMap } from '@/components/Scenes';
 import { errorText } from '@/lib/api';
+import { useSiteConfig } from '@/lib/firebase';
 import { CATEGORIES, KIND_COLOR, product, store, type StoreKind } from '@/lib/data';
 import { km, rupee, when } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
@@ -38,6 +39,8 @@ export default function TrackPage() {
   const user = useStore((s) => s.user);
   const order = useStore((s) => s.orders).find((o) => o.id === id);
   const now = useNow(1000);
+  // The "testing the project?" hints only make sense in the demo, where one person plays every part.
+  const demo = useSiteConfig()?.mode === 'demo';
   const [cancelling, setCancelling] = useState(false);
   /** The live street map or the 3D view; null picks by itself (the map once a partner has the order). */
   const [view, setView] = useState<'map' | '3d' | null>(null);
@@ -180,7 +183,7 @@ export default function TrackPage() {
                   </button>
                 )}
               </div>
-              {!done && (
+              {!done && demo && (
                 <p className="demo-turn">
                   <b>Testing the project?</b>{' '}
                   {order.status === 'placed' || order.status === 'accepted' ? (

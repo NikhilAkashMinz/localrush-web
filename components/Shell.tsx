@@ -7,6 +7,7 @@ import { category, PLACES, PRODUCTS, product, QUICK_NEEDS, type Place } from '@/
 import { mins, rupee } from '@/lib/format';
 import { useNear, usePlan } from '@/lib/hooks';
 import { seatFor } from '@/lib/api';
+import { useSiteConfig } from '@/lib/firebase';
 import { onLive, onLiveStatus, startLive, stopLive } from '@/lib/live';
 import { availability, shopsNear, usable } from '@/lib/nearby';
 import { DELIVERY_FEE, FREE_DELIVERY_FROM } from '@/lib/select';
@@ -478,6 +479,7 @@ function Toasts() {
 }
 
 function Footer() {
+  const live = useSiteConfig()?.mode === 'live';
   return (
     <footer className="foot">
       <div className="foot-in">
@@ -499,7 +501,14 @@ function Footer() {
           </button>
         </nav>
         <p className="foot-note">
-          MCA capstone project, PES University. The shops and stock are sample data, login accepts any 4-digit code and no money moves.
+          {live ? (
+            <>
+              Shops within 5 km of you, delivered.{' '}
+              <Link href="/privacy">Terms and privacy</Link>
+            </>
+          ) : (
+            'MCA capstone project, PES University. The shops and stock are sample data, login accepts any 4-digit code and no money moves.'
+          )}
         </p>
       </div>
     </footer>

@@ -2,7 +2,8 @@
 // same under Next.js (app/api/[...path]/route.ts) and in the tests, with no framework needed.
 //
 //   GET    /api/catalog                    everyone       products, shops, stock
-//   GET    /api/demo                       everyone       the ready-made demo accounts
+//   GET    /api/config                     everyone       demo or live, and how to log in (Firebase settings)
+//   GET    /api/demo                       everyone       the ready-made demo accounts (demo only)
 //   GET    /api/nearby-shops?lat=&lng=     everyone       real shops within 5 km, from OpenStreetMap
 //   POST   /api/auth/login                 everyone       { name, phone, code }, for this seat's kind of account
 //   POST   /api/auth/logout
@@ -20,6 +21,10 @@
 //   PUT    /api/partner                    partner        { online, place, gps }
 //   GET    /api/partner/earnings?period=   partner        what the partner earned
 //   GET    /api/live                       everyone       server-sent events
+//   GET    /api/admin                      admin          every shop with its owner, every partner
+//   POST   /api/admin/shops                admin          add a shop and its owner's account
+//   PUT    /api/admin/shops/:id            admin          change a shop's details, or pause it
+//   POST   /api/admin/partners             admin          add a delivery partner
 //
 // Every request names its "seat" (customer, shop or partner) in the X-LocalRush-Seat header;
 // each seat has its own login cookie. See server/session.ts.
@@ -28,6 +33,8 @@
 // owners. They send "X-LocalRush-Client: app" when logging in, get a token back instead of a
 // cookie, and then send "Authorization: Bearer <token>" with every request.
 
+import * as admin from './admin';
+import { firebaseConfig, isLive, loginMethod, missingSecret, mode } from './config';
 import { channelsFor, liveResponse } from './live';
 import { realShopsNear } from './osm';
 import { getRepo } from './repo';
@@ -67,10 +74,51 @@ function need(user: User | null): User {
   return user;
 }
 
+// ---------- Rate limits ----------
+// These stop one address flooding logins, changes or the shop search. They are generous on
+// purpose: Indian mobile networks put many people behind one shared address, and a partner's
+// phone sends its position every few seconds. Firebase limits the SMS codes themselves.
+// Counted per copy of the server.
+
+const LIMITS: { match: (route: string) => boolean; per: number; windowMs: number; name: string }[] = [
+  { name: 'login', match: (r) => r === 'POST auth/login', per: 60, windowMs: 60_000 },
+  { name: 'search', match: (r) => r === 'GET nearby-shops', per: 60, windowMs: 60_000 },
+  { name: 'write', match: (r) => !r.startsWith('GET '), per: 600, windowMs: 60_000 },
+];
+const hits = new Map<string, { n: number; until: number }>();
+
+function tooMany(request: Request, route: string): boolean {
+  const rule = LIMITS.find((l) => l.match(route));
+  if (!rule) return false;
+  // Behind Render (or any proxy) the visitor's address is the first one in X-Forwarded-For.
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || request.headers.get('x-real-ip') || 'local';
+  const key = rule.name + '|' + ip;
+  const now = Date.now();
+  if (hits.size > 50_000) hits.clear();
+  const h = hits.get(key);
+  if (!h || now > h.until) {
+    hits.set(key, { n: 1, until: now + rule.windowMs });
+    return false;
+  }
+  h.n += 1;
+  return h.n > rule.per;
+}
+
+/** Tests only: forget every count. */
+export const resetRateLimits = () => hits.clear();
+
 export async function handle(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const parts = url.pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
   const route = `${request.method} ${parts[0] ?? ''}${parts[1] && parts[0] !== 'orders' && parts[0] !== 'me' ? '/' + parts[1] : ''}`;
+
+  // Without its own secret a live server could be logged in to by anyone, so it refuses.
+  if (missingSecret()) {
+    return json({ error: 'This server is not set up yet: it needs its SESSION_SECRET setting.', code: 'setup' }, 503);
+  }
+  if (tooMany(request, route)) {
+    return json({ error: 'Too many requests from your connection. Wait a minute and try again.', code: 'slow-down' }, 429, { 'Retry-After': '60' });
+  }
 
   try {
     const repo = await getRepo();
@@ -81,9 +129,15 @@ export async function handle(request: Request): Promise<Response> {
       case 'GET catalog':
         return json(await service.catalogue(repo));
 
-      // The ready-made shop owner and delivery partner accounts, so the login page can offer
-      // them while the project is a demo. Remove this route once shops sign up for real.
+      // What the pages need to know about this server: whether it is the demo or the live
+      // service, and how to log in. The Firebase settings are public by design.
+      case 'GET config':
+        return json({ mode: mode(), login: loginMethod(), firebase: firebaseConfig() });
+
+      // The ready-made shop owner and delivery partner accounts, so the demo's login pages can
+      // offer them. The live service has no such accounts, and never lists anyone's number.
       case 'GET demo':
+        if (isLive()) break;
         return json({
           accounts: seedUsers().map((u) => ({ role: u.role, name: u.name.replace(' (owner)', ''), phone: u.phone, storeId: u.storeId })),
         });
@@ -147,6 +201,18 @@ export async function handle(request: Request): Promise<Response> {
 
       case 'GET live':
         return liveResponse(repo, channelsFor(user), request);
+
+      // The admin page is on the customer site: an admin is a customer whose number is in ADMIN_PHONES.
+      case 'GET admin':
+        return json(await admin.overview(repo, user));
+      case 'POST admin/shops':
+        if (parts[2]) break;
+        return json(await admin.addShop(repo, user, await body(request)), 201);
+      case 'PUT admin/shops':
+        if (!parts[2]) break;
+        return json(await admin.updateShop(repo, user, parts[2], await body(request)));
+      case 'POST admin/partners':
+        return json(await admin.addPartner(repo, user, await body(request)), 201);
     }
     return json({ error: 'There is nothing at this address.' }, 404);
   } catch (e) {

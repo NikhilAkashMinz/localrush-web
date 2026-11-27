@@ -6,6 +6,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { Mark } from '@/components/Icons';
 import Vendors, { type Mood } from '@/components/Vendors';
 import { errorText } from '@/lib/api';
+import { usePhoneLogin } from '@/lib/firebase';
 import { actions, getState } from '@/lib/state';
 import './login.css';
 
@@ -25,6 +26,8 @@ function LoginForm() {
   const [typing, setTyping] = useState(false);
   const [flash, setFlash] = useState<'sad' | 'happy' | null>(null);
   const [busy, setBusy] = useState(false);
+  // A real SMS code on the live service; any 4 digits in the demo.
+  const sms = usePhoneLogin('lg-captcha');
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -39,24 +42,34 @@ function LoginForm() {
     timer.current = setTimeout(() => setFlash(null), 1500);
   };
 
-  const send = (e: React.FormEvent) => {
-    e.preventDefault();
+  const send = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (busy) return;
     if (name.trim().length < 2) return fail('Enter your name.');
     if (!/^[6-9]\d{9}$/.test(phone)) return fail('Enter a 10-digit mobile number.');
+    if (sms.off) return fail('Logging in is not open yet. Please try again later.');
     setError('');
     clearTimeout(timer.current);
     setFlash(null);
-    setStep('code');
+    setBusy(true);
+    try {
+      await sms.send(phone);
+      if (step === 'code') actions.toast('A new code is on its way');
+      setStep('code');
+    } catch (err) {
+      fail(errorText(err));
+    }
+    setBusy(false);
   };
 
   const verify = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy || flash === 'happy') return;
-    if (!/^\d{4}$/.test(code)) return fail('Enter the 4-digit code.');
+    if (code.length !== sms.codeLength) return fail(`Enter the ${sms.codeLength}-digit code.`);
     setError('');
     setBusy(true);
     try {
-      const user = await actions.login({ name: name.trim(), phone, code });
+      const user = await actions.login({ name: name.trim(), ...(await sms.proof(phone, code)) });
       // A number that has ordered before brings its history back with it.
       const past = getState().orders.length;
       setFlash('happy');
@@ -89,7 +102,9 @@ function LoginForm() {
           <div>
             <h1>{step === 'details' ? 'Welcome to LocalRush' : 'Enter the code'}</h1>
             <p className="quiet">
-              {step === 'details' ? 'Log in or sign up with your mobile number.' : `Sent to ${phone}. We are not looking.`}
+              {step === 'details'
+                ? 'Log in or sign up with your mobile number.'
+                : `${sms.sms ? 'Sent by SMS to +91 ' : 'Sent to '}${phone}. We are not looking.`}
             </p>
           </div>
 
@@ -114,9 +129,16 @@ function LoginForm() {
                 Your orders are saved with this number. Log in with it again, on any device, and they are all here.
               </p>
               {error && <p className="warn" role="alert">{error}</p>}
-              <button type="submit" className="btn btn-wide">
-                Send code
+              <button type="submit" className="btn btn-wide" disabled={busy || !sms.config}>
+                {busy ? 'Sending the code…' : 'Send code'}
               </button>
+              <p className="quiet small">
+                By continuing you agree to the{' '}
+                <Link href="/privacy" className="link">
+                  terms and privacy policy
+                </Link>
+                {sms.sms ? '. We send one SMS with your login code.' : '.'}
+              </p>
               <div className="lg-demo">
                 <p className="quiet small">
                   This login is for customers. Shop owners and delivery partners log in on their own screens, and all
@@ -133,11 +155,11 @@ function LoginForm() {
           ) : (
             <form onSubmit={verify} noValidate>
               <label className="lg-field">
-                <span>4-digit code</span>
+                <span>{sms.codeLength}-digit code</span>
                 <input
                   className="lg-code"
                   value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, sms.codeLength))}
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   autoFocus
@@ -158,9 +180,17 @@ function LoginForm() {
               >
                 Change number
               </button>
-              <p className="quiet small">Demo login: no SMS is sent yet, so any 4 digits work.</p>
+              {sms.sms ? (
+                <button type="button" className="link" disabled={busy} onClick={() => void send()}>
+                  No SMS? Send the code again
+                </button>
+              ) : (
+                <p className="quiet small">Demo login: no SMS is sent, so any 4 digits work.</p>
+              )}
             </form>
           )}
+          {/* Firebase's invisible "are you a person?" check lives here while a code is sent. */}
+          <div id="lg-captcha" />
         </div>
       </div>
     </div>

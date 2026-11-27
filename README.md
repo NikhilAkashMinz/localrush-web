@@ -259,9 +259,10 @@ send it as `Authorization: Bearer <token>`; a token works only on the seat it wa
 | Method and path | Who | What |
 |---|---|---|
 | `GET /catalog` | everyone | Products, shops, stock and prices |
-| `GET /demo` | everyone | The ready-made shop owner and partner accounts (demo only) |
+| `GET /config` | everyone | `{ mode, login, firebase }`: demo or live, and the public Firebase settings for SMS login |
+| `GET /demo` | everyone | The ready-made shop owner and partner accounts (demo only; 404 on the live service) |
 | `GET /nearby-shops?lat=&lng=` | everyone | Real shops within 5 km that are not on LocalRush, from OpenStreetMap |
-| `POST /auth/login` | everyone | `{ name, phone, code }`; only this seat's kind of account. The app also gets a `token` |
+| `POST /auth/login` | everyone | `{ name, idToken }` with Firebase's token after an SMS code, or `{ name, phone, code }` in the demo; only this seat's kind of account. The app also gets a `token` |
 | `POST /auth/logout` | | |
 | `GET /me`, `PATCH /me` | logged in | Current user; change name |
 | `DELETE /me/addresses/:id` | logged in | Remove a saved address |
@@ -276,7 +277,11 @@ send it as `Authorization: Bearer <token>`; a token works only on the seat it wa
 | `PUT /partner` | partner | `{ online, place, gps }`. `gps: true` marks a position from the phone's GPS |
 | `GET /partner/earnings?period=` | partner | What the partner earned: totals, pay waiting on the current delivery, cash collected, and the deliveries |
 | `GET /live` | everyone | Server-sent events |
-| `GET /health` | everyone | Version, storage mode, database state |
+| `GET /admin` | admin | Every shop with its owner, every delivery partner |
+| `POST /admin/shops` | admin | Add a shop and its owner's account: `{ name, kind, area, lat, lng, open, close, ownerName, ownerPhone }` |
+| `PUT /admin/shops/:id` | admin | Change a shop's details, or pause it |
+| `POST /admin/partners` | admin | Add a delivery partner: `{ name, phone }` |
+| `GET /health` | everyone | Version, storage mode, database state, mode, and what live setup is missing |
 
 ## Where things live
 
@@ -360,6 +365,86 @@ Fastest and Cheapest. The server runs the same function again on live stock when
 is placed, so the page can never order something that just sold out. Workload now includes
 the orders each shop is really working on.
 
+## Going live
+
+LocalRush runs in one of two modes (`server/config.ts`):
+
+| | Demo | Live |
+|---|---|---|
+| Used by | `npm run dev`, the tests, the minikube cluster | The production image, and Render |
+| Login | Any 4-digit code | A real SMS code (Firebase) |
+| Data | Sample shops, stock and accounts | Only the product catalogue; admins add the shops and partners |
+| `/api/demo` (lists demo numbers) | On | Off |
+| Login cookie | Built-in secret allowed | Needs its own `SESSION_SECRET`, and is sent over https only |
+
+`LOCALRUSH_MODE` sets it; without it, a production server is live. Open `/api/health` on any copy
+to see its mode and what is still missing: `"login":"sms"` means SMS login works, `"off"` means
+Firebase is not set up yet, `"sessionSecret":"missing"` means the server refuses requests until
+one is set, and `"admins"` counts the admin numbers.
+
+You need three free accounts. Each step below is done by you in that service's website.
+
+### 1. The database: MongoDB Atlas
+
+1. Sign up at https://www.mongodb.com/cloud/atlas/register and create a **free (M0) cluster**.
+   Pick AWS, **Singapore (ap-southeast-1)**: the same region as the Render service below.
+2. **Database Access**: add a database user with a generated password. Keep the password.
+3. **Network Access**: add `0.0.0.0/0` (allow access from anywhere). Render's free plan has no
+   fixed address to allow instead; the user's password is what protects the database.
+4. **Connect > Drivers**: copy the connection string, put the password in it, and add the
+   database name `localrush` before the `?`:
+   `mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/localrush?retryWrites=true&w=majority`
+
+### 2. SMS login: Firebase
+
+1. At https://console.firebase.google.com create a project (Google Analytics is not needed).
+2. **Build > Authentication > Get started > Sign-in method**: enable **Phone**.
+3. Upgrade the project to the **Blaze (pay as you go)** plan: Firebase sends SMS codes to real
+   numbers only on Blaze, and charges per SMS. In Google Cloud's billing, set a budget alert.
+4. **Authentication > Settings > SMS region policy**: allow only India. This stops anyone
+   making you pay for SMS to other countries.
+5. **Project settings (the gear) > General > Your apps**: add a **Web** app. Copy its `apiKey`
+   and `projectId`.
+6. Optional, for testing without SMS charges: **Sign-in method > Phone > Phone numbers for
+   testing**: add a made-up number with a fixed code.
+
+After step 3 of Render, also add the site's address (for example `localrush.onrender.com`) under
+**Authentication > Settings > Authorized domains**, or codes cannot be sent from it.
+
+### 3. Hosting: Render
+
+1. Sign up at https://render.com with your GitHub account.
+2. **New > Blueprint**, pick this repository. Render reads `render.yaml` and asks for:
+   - `MONGODB_URI`: the Atlas string from step 1.
+   - `FIREBASE_PROJECT_ID` and `FIREBASE_API_KEY`: from Firebase step 5.
+   - `ADMIN_PHONES`: your own 10-digit mobile number (several, comma separated, if needed).
+
+   It creates `SESSION_SECRET` by itself.
+3. Wait for the first build (5 to 10 minutes), then open `https://YOUR-SERVICE.onrender.com/api/health`.
+   It should say `"mode":"live"`, `"login":"sms"`, `"database":"connected"`,
+   `"sessionSecret":"set"` and `"admins":1`.
+4. Add that address to Firebase's authorized domains (above).
+5. Optional, in the service's **Environment** tab: `SUPPORT_CONTACT` (shown on the terms and
+   privacy page) and `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (the 3D map; it is built into the page,
+   so save it with "Save, rebuild and deploy").
+
+Every push to `main` deploys again by itself. The free plan sleeps after 15 minutes without
+visitors and takes up to a minute to wake; change `plan: free` to `starter` in `render.yaml`
+(and in Render) for a site that is always awake.
+
+### 4. First day
+
+1. Open the site, log in with your admin number (an SMS comes), then **Account > Open admin**.
+2. Add each shop: name, kind, area, location (stand in the shop and press "Use my location",
+   or paste the numbers from Google Maps), opening hours, and the owner's name and mobile.
+3. Add each delivery partner's name and mobile.
+4. Each owner logs in at `/dashboard` with their number and adds their stock and prices under
+   **Stock and prices** (from the catalogue, or new products).
+5. Partners log in at `/partner` and go online. Customers can now order.
+
+One mobile number is one account: a number already used to order cannot also be a shop owner or
+partner, so owners and partners should use a number they have not ordered with.
+
 ## Things to know when you demo it
 
 - **Opening hours are real**, in India time. Late at night most shops are closed; only
@@ -411,9 +496,10 @@ kubectl rollout restart deployment/localrush-web -n localrush
 
 ## Not built yet
 
-Real SMS codes, real payments, alerts on the partner's and the shop owner's phones while the
-apps are closed (push notifications), shop sign-up (shops and owners come from the seed data),
-and an admin view across all shops. The partner's GPS is shared only while the partner app is
+Real payments (UPI is still a demo: an order paid "online" moves no money, and the partner is
+told there is nothing to collect), alerts on the partner's and the shop owner's phones while the
+apps are closed (push notifications), self sign-up for shops and partners (an admin adds them),
+and admin views of orders and sales across all shops. The partner's GPS is shared only while the partner app is
 open (no location in the background yet), and the live map draws a straight dashed line for the
 way still to go, not a route along the roads.
 

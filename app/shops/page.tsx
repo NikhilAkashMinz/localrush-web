@@ -184,7 +184,7 @@ export default function ShopsPage() {
                           {KIND_LABEL[n.store.kind]} in {n.store.area}
                         </small>
                         <small>
-                          {km(n.distKm)} away, rated {n.store.rating.toFixed(1)}
+                          {km(n.distKm)} away, {n.store.rating ? `rated ${n.store.rating.toFixed(1)}` : 'new on LocalRush'}
                         </small>
                       </span>
                       <em>{n.open ? mins(n.etaMin) : `Opens ${hourLabel(n.store.open[0])}`}</em>

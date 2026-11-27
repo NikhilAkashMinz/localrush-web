@@ -10,7 +10,7 @@ import { afterEach, beforeEach, test } from 'node:test';
 import { PLACES, stockKey } from '../lib/data';
 import { PAY_BASE, partnerPay, type Order } from '../lib/orders';
 import { SAMPLE } from '../lib/sample';
-import { handle } from '../server/api';
+import { handle, resetRateLimits } from '../server/api';
 import { clock } from '../server/clock';
 import { createMongoRepo } from '../server/mongo';
 import { useOverpass, type OsmElement } from '../server/osm';
@@ -25,6 +25,7 @@ let repo: Repo;
 const MONGO = process.env.TEST_MONGODB_URI;
 
 beforeEach(async () => {
+  resetRateLimits();
   repo = MONGO ? useRepo(await createMongoRepo(MONGO, { reset: true })) : useFreshMemoryRepo();
   // 11 am in India, when every sample shop is open.
   clock.now = () => new Date('2026-01-05T11:00:00+05:30').getTime();

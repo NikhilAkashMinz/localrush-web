@@ -186,7 +186,8 @@ export const actions = {
     }
   },
 
-  async login(input: { name: string; phone: string; code: string }) {
+  /** Log in on this page's seat, with a demo code or Firebase's proof of the number (lib/firebase.ts). */
+  async login(input: { name: string; phone?: string; code?: string; idToken?: string }) {
     const { user } = await api<{ user: Me }>('POST', 'auth/login', input);
     // Each seat only ever logs in its own kind of account, so this is always this page's user.
     set({ user, orders: [], available: [] }, false);

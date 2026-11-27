@@ -82,6 +82,18 @@ export default function AccountPage() {
         <p className="quiet small">Your orders are saved with your mobile number. Log in with {user.phone} on any device to see them.</p>
       </section>
 
+      {user.admin && (
+        <section className="box">
+          <h2>Admin</h2>
+          <p className="box-row">
+            <span>Add shops and delivery partners</span>
+            <Link href="/admin" className="link">
+              Open admin
+            </Link>
+          </p>
+        </section>
+      )}
+
       <section className="box">
         <h2>Delivery partner and shop screens</h2>
         <p className="quiet small">

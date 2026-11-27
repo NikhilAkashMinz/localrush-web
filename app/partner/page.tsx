@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import PeriodPicker from '@/components/PeriodPicker';
 import { errorText } from '@/lib/api';
+import { useSiteConfig } from '@/lib/firebase';
 import { PLACES, product, store, type Place } from '@/lib/data';
 import { km, rupee, when } from '@/lib/format';
 import { useNow, useReport } from '@/lib/hooks';
@@ -38,6 +39,7 @@ function Items({ o }: { o: Order }) {
 }
 
 function Active({ o }: { o: Order }) {
+  const demo = useSiteConfig()?.mode === 'demo';
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -137,9 +139,11 @@ function Active({ o }: { o: Order }) {
           <p className="quiet small" id={`code-help-${o.id}`}>
             Ask the customer for the code for order <b>{o.id}</b>. They see it on their tracking page and in Your orders.
             Each order has its own code.{' '}
-            <a className="link" href={`/orders/${o.id}`} target="_blank" rel="noreferrer">
-              Testing? Open the customer&apos;s page
-            </a>
+            {demo && (
+              <a className="link" href={`/orders/${o.id}`} target="_blank" rel="noreferrer">
+                Testing? Open the customer&apos;s page
+              </a>
+            )}
           </p>
           {o.customerPhone && (
             <a className="btn btn-line" href={`tel:+91${o.customerPhone}`}>

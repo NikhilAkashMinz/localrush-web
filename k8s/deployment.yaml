@@ -37,6 +37,10 @@ spec:
             - name: http
               containerPort: 3000
           env:
+            # The cluster on your laptop runs the demo (sample shops, any 4-digit code). Without
+            # this, the production image would start as the live service (server/config.ts).
+            - name: LOCALRUSH_MODE
+              value: demo
             # Where the database is: the "mongo" service from mongo.yaml. Every copy of the
             # site shares it, which is what lets two copies show the same orders and stock.
             - name: MONGODB_URI

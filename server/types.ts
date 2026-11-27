@@ -61,6 +61,8 @@ export interface Repo {
 
   dataset(): Promise<Omit<Dataset, 'rev'>>;
   patchStore(id: string, patch: Partial<Pick<Store, 'paused'>>): Promise<void>;
+  /** Add a shop, or replace one with the same id. */
+  putStore(s: Store): Promise<void>;
   putProduct(p: Product): Promise<void>;
   putStock(storeId: string, productId: string, stock: Stock): Promise<void>;
   /** Take `qty` from stock only if that many are left. Returns false, changing nothing, if not. */
@@ -70,6 +72,8 @@ export interface Repo {
   userByPhone(phone: string): Promise<User | null>;
   userById(id: string): Promise<User | null>;
   putUser(u: User): Promise<void>;
+  /** Every account of one kind, oldest first. Used by the admin page. */
+  usersByRole(role: Role): Promise<User[]>;
 
   insertOrder(o: Order): Promise<void>;
   orderById(id: string): Promise<Order | null>;

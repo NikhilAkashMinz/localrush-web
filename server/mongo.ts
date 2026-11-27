@@ -9,6 +9,7 @@ import type { Collection, Db, MongoClient } from 'mongodb';
 import type { Product, Stock, Store } from '../lib/data';
 import { stockKey } from '../lib/data';
 import type { Order } from '../lib/orders';
+import { isLive } from './config';
 import { OLD_PARTNER_NAMES, PARTNER_NAMES, seedCatalogue, seedUsers } from './seed';
 import type { OrderFilter, Repo, User } from './types';
 
@@ -24,21 +25,26 @@ function strip<T>(doc: WithId<T> | null): T | null {
   return rest as unknown as T;
 }
 
-/** Fill an empty database with the sample catalogue and demo accounts. Safe to run twice. */
+/**
+ * Fill an empty database. Every database gets the product catalogue, which shop owners pick
+ * their stock from. Only a demo database also gets the sample shops, their stock and the
+ * ready-made accounts; a live one starts with no shops, and an admin adds the real ones.
+ * Safe to run twice, and on several copies of the server at once.
+ */
 async function seedIfEmpty(db: Db) {
-  const stores = db.collection<WithId<Store>>('stores');
-  if ((await stores.estimatedDocumentCount()) > 0) return;
   const seed = seedCatalogue();
   const ignoreDuplicates = (e: unknown) => {
     // Another copy of the server seeded at the same moment; its rows are the same as ours.
     if ((e as { code?: number }).code !== 11000) throw e;
   };
+  const products = db.collection<WithId<Product>>('products');
+  if ((await products.estimatedDocumentCount()) === 0) {
+    await products.insertMany(seed.products.map((p) => ({ ...p, _id: p.id })), { ordered: false }).catch(ignoreDuplicates);
+  }
+  const stores = db.collection<WithId<Store>>('stores');
+  if (isLive() || (await stores.estimatedDocumentCount()) > 0) return;
   await Promise.all([
     stores.insertMany(seed.stores.map((s) => ({ ...s, _id: s.id })), { ordered: false }).catch(ignoreDuplicates),
-    db
-      .collection<WithId<Product>>('products')
-      .insertMany(seed.products.map((p) => ({ ...p, _id: p.id })), { ordered: false })
-      .catch(ignoreDuplicates),
     db
       .collection<InventoryDoc>('inventory')
       .insertMany(
@@ -101,6 +107,8 @@ export async function createMongoRepo(uri: string, options: { reset?: boolean } 
   await Promise.all([
     // One account per mobile number: logging in again with it finds the same account.
     users.createIndex({ phone: 1 }, { unique: true }),
+    // The admin page's lists of shop owners and delivery partners.
+    users.createIndex({ role: 1, createdAt: 1 }),
     orders.createIndex({ customerId: 1, createdAt: -1 }),
     // A customer's order history, found by mobile number.
     orders.createIndex({ customerPhone: 1, createdAt: -1 }),
@@ -144,6 +152,9 @@ export async function createMongoRepo(uri: string, options: { reset?: boolean } 
     async patchStore(id, patch) {
       await stores.updateOne({ _id: id }, { $set: patch });
     },
+    async putStore(s) {
+      await stores.replaceOne({ _id: s.id }, { ...s }, { upsert: true });
+    },
     async putProduct(p) {
       await products.replaceOne({ _id: p.id }, { ...p }, { upsert: true });
     },
@@ -167,6 +178,10 @@ export async function createMongoRepo(uri: string, options: { reset?: boolean } 
     },
     async userById(id) {
       return strip<User>(await users.findOne({ _id: id }));
+    },
+    async usersByRole(role) {
+      const docs = await users.find({ role }).sort({ createdAt: 1 }).toArray();
+      return docs.map((d) => strip<User>(d)!);
     },
     async putUser(u) {
       await users.replaceOne({ _id: u.id }, { ...u }, { upsert: true });
