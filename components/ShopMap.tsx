@@ -13,6 +13,7 @@ import { metresPerPixel, project, tilesFor, unproject } from '@/lib/mapmath';
 import type { Near } from '@/lib/nearby';
 import { directionsUrl, type RealShop } from '@/lib/realshops';
 import { MinusIcon, PlusIcon, TargetIcon } from './Icons';
+import SampleTag from './SampleTag';
 
 export const KIND_EMOJI: Record<StoreKind, string> = {
   kirana: '🛒',
@@ -215,7 +216,7 @@ export default function ShopMap({ place, shops, real = [], selected, hovered, on
           const p = at(picked.store.lat, picked.store.lng);
           return (
             <div className="sm-pop" style={{ left: p.x, top: p.y }}>
-              <b>{picked.store.name}</b>
+              <b>{picked.store.name}<SampleTag store={picked.store} /></b>
               <span>{KIND_LABEL[picked.store.kind]}</span>
               <span>{shopStatus(picked)}</span>
               <Link href={`/store/${picked.store.id}`} className="btn btn-small">

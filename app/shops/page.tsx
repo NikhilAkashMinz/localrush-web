@@ -8,6 +8,7 @@ import { hourLabel, km, mins } from '@/lib/format';
 import { useNear } from '@/lib/hooks';
 import { directionsUrl, isRealShopId, useOsmShops } from '@/lib/realshops';
 import { actions, useStore } from '@/lib/state';
+import SampleTag from '@/components/SampleTag';
 import './shops.css';
 
 /** Real shops listed at first; the rest come a page at a time. */
@@ -179,7 +180,7 @@ export default function ShopsPage() {
                         {KIND_EMOJI[n.store.kind]}
                       </i>
                       <span>
-                        <b>{n.store.name}</b>
+                        <b>{n.store.name}<SampleTag store={n.store} /></b>
                         <small>
                           {KIND_LABEL[n.store.kind]} in {n.store.area}
                         </small>

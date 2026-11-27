@@ -36,6 +36,11 @@ export type Store = {
   rating: number;
   /** Set by the shop owner to stop taking orders for a while. */
   paused?: boolean;
+  /**
+   * A made-up shop from the sample data, added on the live service so it can be tried before
+   * real shops join. Shown with a "Sample" label wherever shops appear.
+   */
+  sample?: boolean;
   /** Orders this shop is working on right now. Filled in by the server. */
   busy?: number;
 };

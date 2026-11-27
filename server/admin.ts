@@ -5,6 +5,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { KIND_LABEL, type Store, type StoreKind } from '../lib/data';
+import { SAMPLE } from '../lib/sample';
 import { ApiError, contactOf, isAdmin } from './service';
 import { clock } from './clock';
 import type { Repo, User } from './types';
@@ -113,6 +114,51 @@ export async function updateShop(repo: Repo, user: User | null, storeId: string,
   await repo.putStore(next);
   await repo.bump(['catalog', 'store:' + storeId]);
   return { shop: next };
+}
+
+/**
+ * Add the sample shops (lib/sample.ts) with their stock and prices, marked as samples, so the
+ * live service can be tried before real shops join. They have no owners until the admin gives
+ * one an owner. Shops already added are left as they are, so this is safe to run twice.
+ */
+export async function addSampleShops(repo: Repo, user: User | null) {
+  requireAdmin(user);
+  const have = new Set((await repo.dataset()).stores.map((s) => s.id));
+  let added = 0;
+  for (const s of SAMPLE.stores) {
+    if (have.has(s.id)) continue;
+    await repo.putStore({ ...s, sample: true });
+    for (const [key, stock] of Object.entries(SAMPLE.stock)) {
+      const [storeId, productId] = key.split('|');
+      if (storeId === s.id) await repo.putStock(storeId, productId, { ...stock });
+    }
+    added++;
+  }
+  await repo.bump(['catalog']);
+  return { added };
+}
+
+/** Give a shop that has no owner yet (a sample shop) its owner's account, to run its dashboard. */
+export async function setOwner(repo: Repo, user: User | null, storeId: string, input: { ownerName?: unknown; ownerEmail?: unknown; ownerMobile?: unknown }) {
+  requireAdmin(user);
+  const shop = (await repo.dataset()).stores.find((s) => s.id === storeId);
+  if (!shop) throw new ApiError(404, 'There is no shop with that id.');
+  if ((await repo.usersByRole('shop')).some((o) => o.storeId === storeId)) {
+    throw new ApiError(409, 'This shop already has an owner.', 'has-owner');
+  }
+  if (!isText(input.ownerName, 2, 60)) throw new ApiError(400, 'Enter the shop owner\'s name.');
+  const login = await account(repo, input.ownerEmail, input.ownerMobile, 'owner');
+  const owner: User = {
+    id: 'u-' + randomBytes(6).toString('hex').toUpperCase(),
+    name: input.ownerName.trim(),
+    ...login,
+    role: 'shop',
+    storeId,
+    addresses: [],
+    createdAt: clock.now(),
+  };
+  await repo.putUser(owner);
+  return { owner: person(owner) };
 }
 
 /** Add a delivery partner. They then log in on the delivery screen with that email. */

@@ -24,6 +24,8 @@
 //   GET    /api/admin                      admin          every shop with its owner, every partner
 //   POST   /api/admin/shops                admin          add a shop and its owner's account
 //   PUT    /api/admin/shops/:id            admin          change a shop's details, or pause it
+//   POST   /api/admin/shops/:id/owner      admin          give a shop without an owner (a sample shop) its owner
+//   POST   /api/admin/sample-shops         admin          add the labelled sample shops, to try the live service
 //   POST   /api/admin/partners             admin          add a delivery partner
 //
 // Every request names its "seat" (customer, shop or partner) in the X-LocalRush-Seat header;
@@ -206,8 +208,11 @@ export async function handle(request: Request): Promise<Response> {
       case 'GET admin':
         return json(await admin.overview(repo, user));
       case 'POST admin/shops':
+        if (parts[2] && parts[3] === 'owner') return json(await admin.setOwner(repo, user, parts[2], await body(request)), 201);
         if (parts[2]) break;
         return json(await admin.addShop(repo, user, await body(request)), 201);
+      case 'POST admin/sample-shops':
+        return json(await admin.addSampleShops(repo, user));
       case 'PUT admin/shops':
         if (!parts[2]) break;
         return json(await admin.updateShop(repo, user, parts[2], await body(request)));

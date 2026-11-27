@@ -14,6 +14,7 @@ import { DELIVERY_FEE, FREE_DELIVERY_FROM } from '@/lib/select';
 import { actions, cartCount, useStore } from '@/lib/state';
 import { BagIcon, CartIcon, CheckIcon, ChevronIcon, CloseIcon, Mark, PinIcon, SearchIcon, TargetIcon, UserIcon } from './Icons';
 import { AddButton, ProductArt, unavailableText } from './Product';
+import SampleTag from './SampleTag';
 import StaffShell from './StaffShell';
 
 /** Find products by name, keyword or category. */
@@ -354,7 +355,7 @@ function CartPanel() {
               {plan.shipments.map((s) => (
                 <section className="ship" key={s.near.store.id}>
                   <header>
-                    <b>{s.near.store.name}</b>
+                    <b>{s.near.store.name}<SampleTag store={s.near.store} /></b>
                     <span>about {mins(s.etaMin)}</span>
                   </header>
                   <ul>

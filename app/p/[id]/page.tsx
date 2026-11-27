@@ -7,6 +7,7 @@ import { PackViewer } from '@/components/Scenes';
 import { category, describe, product, PRODUCTS } from '@/lib/data';
 import { km, mins, rupee } from '@/lib/format';
 import { useAvailability } from '@/lib/hooks';
+import SampleTag from '@/components/SampleTag';
 
 export default function ProductPage() {
   const { id } = useParams<{ id: string }>();
@@ -82,7 +83,7 @@ export default function ProductPage() {
                 {a.offers.map((o) => (
                   <li key={o.near.store.id}>
                     <Link href={`/store/${o.near.store.id}`}>
-                      <b>{o.near.store.name}</b>
+                      <b>{o.near.store.name}<SampleTag store={o.near.store} /></b>
                       <small>
                         {km(o.near.distKm)} away, about {mins(o.near.etaMin)}
                         {o.stock <= 3 ? `, only ${o.stock} left` : ''}

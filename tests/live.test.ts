@@ -259,6 +259,37 @@ test('order history belongs to the account: a shared delivery number never shows
   assert.equal((await call('GET', 'orders', { as: later })).data.orders[0].id, hers[0].id);
 });
 
+test('an admin can add the labelled sample shops, and give one an owner to run it', async () => {
+  const customer = await login('asha@gmail.com');
+  assert.equal((await call('POST', 'admin/sample-shops', { as: customer })).status, 403);
+
+  const boss = await login(ADMIN, 'customer', 'Nikhil');
+  const first = await call('POST', 'admin/sample-shops', { as: boss });
+  assert.equal(first.status, 200);
+  assert.equal(first.data.added, 15);
+  assert.equal((await call('POST', 'admin/sample-shops', { as: boss })).data.added, 0, 'safe to press twice');
+
+  const catalog = (await call('GET', 'catalog')).data;
+  assert.equal(catalog.stores.length, 15);
+  assert.ok(catalog.stores.every((s: { sample?: boolean }) => s.sample === true), 'every one is labelled a sample');
+  assert.ok(Object.keys(catalog.stock).length > 100, 'with their stock and prices');
+
+  // A customer can order from a sample shop; it waits for whoever runs that shop.
+  const placed = await call('POST', 'orders', { as: customer, body: orderBody({ cart: { chips: 1 }, mobile: '9876543210' }) });
+  assert.equal(placed.status, 201, JSON.stringify(placed.data));
+  const storeId = placed.data.orders[0].storeId as string;
+
+  // The admin gives that shop an owner, who then sees the order on the dashboard.
+  const ownerless = (await call('GET', 'admin', { as: boss })).data.shops.find((s: { id: string }) => s.id === storeId);
+  assert.equal(ownerless.owner, null);
+  const owned = await call('POST', `admin/shops/${storeId}/owner`, { as: boss, body: { ownerName: 'Demo Owner', ownerEmail: 'demo.owner@gmail.com' } });
+  assert.equal(owned.status, 201, JSON.stringify(owned.data));
+  assert.equal((await call('POST', `admin/shops/${storeId}/owner`, { as: boss, body: { ownerName: 'Someone', ownerEmail: 'x@y.com' } })).status, 409, 'one owner per shop');
+  const owner = await login('demo.owner@gmail.com', 'shop', 'Demo Owner');
+  const board = (await call('GET', 'orders', { as: owner })).data.orders;
+  assert.equal(board[0].id, placed.data.orders[0].id);
+});
+
 test('a live server without its own SESSION_SECRET refuses every request', async () => {
   const saved = process.env.SESSION_SECRET;
   delete process.env.SESSION_SECRET;

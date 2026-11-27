@@ -14,6 +14,7 @@ import { useNear } from '@/lib/hooks';
 import { availability, usable } from '@/lib/nearby';
 import { useOsmShops } from '@/lib/realshops';
 import { actions, useStore } from '@/lib/state';
+import SampleTag from '@/components/SampleTag';
 
 function greeting() {
   const h = new Date().getHours();
@@ -174,7 +175,7 @@ export default function HomePage() {
               >
                 <i style={{ background: KIND_COLOR[n.store.kind] }} />
                 <span>
-                  <b>{n.store.name}</b>
+                  <b>{n.store.name}<SampleTag store={n.store} /></b>
                   <small>
                     {KIND_LABEL[n.store.kind]}, {km(n.distKm)}
                   </small>

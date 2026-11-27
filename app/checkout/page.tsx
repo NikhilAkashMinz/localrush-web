@@ -10,6 +10,7 @@ import { usePlan } from '@/lib/hooks';
 import { FACTOR_LABEL, MODES, WEIGHTS, type Candidate, type Factor, type Shipment } from '@/lib/select';
 import { ApiFail, errorText } from '@/lib/api';
 import { actions, useStore } from '@/lib/state';
+import SampleTag from '@/components/SampleTag';
 
 const TAGS = ['Home', 'Hostel', 'Work'];
 const FACTORS: Factor[] = ['eta', 'distance', 'price', 'workload'];
@@ -31,7 +32,7 @@ function Comparison({ s }: { s: Shipment }) {
       {rows.map((c, i) => (
         <div key={c.near.store.id} className={i === 0 ? 'cmp cmp-win' : 'cmp'}>
           <header>
-            <b>{c.near.store.name}</b>
+            <b>{c.near.store.name}<SampleTag store={c.near.store} /></b>
             {i === 0 ? <span className="tag">Picked</span> : null}
             <em>
               {c.lines.length < s.lines.length
@@ -227,12 +228,19 @@ export default function CheckoutPage() {
               </p>
             )}
 
+            {plan.shipments.some((s) => s.near.store.sample) && (
+              <p className="note">
+                Your order includes a <b>sample shop</b>, which is not a real shop: it is there to try LocalRush. It
+                is only packed and delivered if the LocalRush team is running that shop at the time.
+              </p>
+            )}
+
             {plan.shipments.map((s, i) => (
               <div className="pick" key={s.near.store.id}>
                 <header>
                   <span>
                     {plan.shipments.length > 1 && <small>Delivery {i + 1} of {plan.shipments.length}</small>}
-                    <b>{s.near.store.name}</b>
+                    <b>{s.near.store.name}<SampleTag store={s.near.store} /></b>
                   </span>
                   <em>about {mins(s.etaMin)}</em>
                 </header>

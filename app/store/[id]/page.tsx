@@ -8,6 +8,7 @@ import { CATEGORIES, KIND_COLOR, KIND_LABEL, PRODUCTS, stockAt } from '@/lib/dat
 import { hourLabel, km, mins } from '@/lib/format';
 import { useNear } from '@/lib/hooks';
 import { closedReason } from '@/lib/nearby';
+import SampleTag from '@/components/SampleTag';
 
 export default function StorePage() {
   const { id } = useParams<{ id: string }>();
@@ -53,7 +54,7 @@ export default function StorePage() {
       <header className="store-head">
         <i style={{ background: KIND_COLOR[s.kind] }} aria-hidden />
         <div>
-          <h1>{s.name}</h1>
+          <h1>{s.name}<SampleTag store={s} /></h1>
           <p>
             {KIND_LABEL[s.kind]} in {s.area}. {hours}.
           </p>

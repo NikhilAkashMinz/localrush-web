@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, errorText } from '@/lib/api';
 import { KIND_LABEL, type Store, type StoreKind } from '@/lib/data';
 import { hourLabel } from '@/lib/format';
+import SampleTag from '@/components/SampleTag';
 import { actions, useStore } from '@/lib/state';
 
 type Person = { id: string; name: string; email: string; mobile: string; createdAt: number };
@@ -184,6 +185,70 @@ function ShopForm({ shop, onSaved, onCancel }: { shop?: AdminShop; onSaved: () =
   );
 }
 
+/** Give a shop that has no owner (a sample shop) an owner, who can then run its dashboard. */
+function OwnerForm({ shop, onSaved, onCancel }: { shop: AdminShop; onSaved: () => void; onCancel: () => void }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      await api('POST', `admin/shops/${encodeURIComponent(shop.id)}/owner`, { ownerName: name.trim(), ownerEmail: email, ownerMobile: mobile });
+      actions.toast(`${name.trim()} can now log in on the shop dashboard for ${shop.name} with ${email}.`);
+      onSaved();
+    } catch (err) {
+      setError(errorText(err));
+    }
+    setBusy(false);
+  };
+
+  return (
+    <form className="ad-form" onSubmit={save} noValidate>
+      <p>
+        <b>Owner for {shop.name}</b>
+      </p>
+      <div className="ad-grid">
+        <label className="field">
+          <span>Name</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
+        </label>
+        <label className="field">
+          <span>Email (they log in with it)</span>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value.trim())} inputMode="email" autoComplete="off" placeholder="name@gmail.com" />
+        </label>
+        <label className="field">
+          <span>Mobile number (optional)</span>
+          <input
+            value={mobile}
+            onChange={(e) => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="10 digits"
+          />
+        </label>
+      </div>
+      {error && (
+        <p className="warn" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="ad-acts">
+        <button type="submit" className="btn" disabled={busy}>
+          {busy ? 'Saving…' : 'Save the owner'}
+        </button>
+        <button type="button" className="btn btn-line" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function PartnerForm({ onSaved }: { onSaved: () => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -256,7 +321,22 @@ export default function AdminPage() {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
+  const [owning, setOwning] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [samples, setSamples] = useState(false);
+
+  const addSamples = async () => {
+    setSamples(true);
+    try {
+      const { added } = await api<{ added: number }>('POST', 'admin/sample-shops');
+      actions.toast(added ? `${added} sample shops added, labelled "Sample".` : 'The sample shops are already there.');
+      await actions.refreshCatalog();
+      load();
+    } catch (e) {
+      actions.toast(errorText(e));
+    }
+    setSamples(false);
+  };
 
   const load = useCallback(() => {
     api<Overview>('GET', 'admin').then(
@@ -310,6 +390,18 @@ export default function AdminPage() {
             </button>
           )}
         </div>
+        {data && !data.shops.some((s) => s.sample) && (
+          <p className="box-row ad-samples">
+            <span className="quiet small">
+              No real shops yet? Add the 15 sample Bangalore shops, with their stock and prices, so the site can be tried.
+              They are labelled &quot;Sample&quot; everywhere; give one an owner below to run its orders, and pause them
+              when real shops join.
+            </span>
+            <button type="button" className="btn btn-small btn-line" onClick={addSamples} disabled={samples}>
+              {samples ? 'Adding…' : 'Add sample shops'}
+            </button>
+          </p>
+        )}
         {adding && (
           <ShopForm
             onSaved={() => {
@@ -326,7 +418,7 @@ export default function AdminPage() {
         ) : (
           <ul className="rows">
             {data.shops.map((s) => (
-              <li key={s.id} className={editing === s.id ? 'ad-editing' : ''}>
+              <li key={s.id} className={editing === s.id || owning === s.id ? 'ad-editing' : ''}>
                 {editing === s.id ? (
                   <ShopForm
                     shop={s}
@@ -336,21 +428,38 @@ export default function AdminPage() {
                     }}
                     onCancel={() => setEditing(null)}
                   />
+                ) : owning === s.id ? (
+                  <OwnerForm
+                    shop={s}
+                    onSaved={() => {
+                      setOwning(null);
+                      load();
+                    }}
+                    onCancel={() => setOwning(null)}
+                  />
                 ) : (
                   <>
                     <span>
                       <b>
                         {s.name}
+                        <SampleTag store={s} />
                         {s.paused && <em className="ad-tag">Paused</em>}
                       </b>
                       <small>
                         {KIND_LABEL[s.kind]} in {s.area} · {hourLabel(s.open[0])} to {s.open[1] === 24 ? 'midnight' : hourLabel(s.open[1])}
                       </small>
-                      <small>{s.owner ? `Owner: ${[s.owner.name, s.owner.email, s.owner.mobile].filter(Boolean).join(', ')}` : 'No owner account'}</small>
+                      <small>{s.owner ? `Owner: ${[s.owner.name, s.owner.email, s.owner.mobile].filter(Boolean).join(', ')}` : 'No owner yet'}</small>
                     </span>
-                    <button type="button" className="link" onClick={() => setEditing(s.id)}>
-                      Edit
-                    </button>
+                    <span className="ad-row-acts">
+                      {!s.owner && (
+                        <button type="button" className="link" onClick={() => setOwning(s.id)}>
+                          Give it an owner
+                        </button>
+                      )}
+                      <button type="button" className="link" onClick={() => setEditing(s.id)}>
+                        Edit
+                      </button>
+                    </span>
                   </>
                 )}
               </li>
