@@ -5,7 +5,9 @@
 export type Me = {
   id: string;
   name: string;
-  phone: string;
+  /** The login number (demo accounts). Live accounts log in by email instead. */
+  phone?: string;
+  email?: string;
   role: 'customer' | 'shop' | 'partner';
   /** The shop they run. */
   storeId?: string;
@@ -93,4 +95,11 @@ export type SalesReport = {
 
 export type DemoAccount = { role: 'shop' | 'partner'; name: string; phone: string; storeId?: string };
 
-export type Health = { status: string; version?: string; storage?: string; database?: string };
+export type Health = { status: string; version?: string; mode?: 'live' | 'demo'; storage?: string; database?: string };
+
+/** How this server runs and how people log in to it (GET /api/config). */
+export type Config = {
+  mode: 'live' | 'demo';
+  login: 'firebase' | 'demo' | 'off';
+  firebase: { apiKey: string; projectId: string; authDomain: string } | null;
+};

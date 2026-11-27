@@ -467,9 +467,24 @@ visitors and takes up to a minute to wake; change `plan: free` to `starter` in `
 One email is one account: an email already used to shop cannot also be a shop owner or partner,
 so owners and partners should use an email they have not shopped with.
 
-The phone apps (`partner-app/`, `vendor-app/`) still log in with the demo's phone and code, so
-they work against a demo server only; on the live service, partners and owners use `/partner` and
-`/dashboard` in their phone's browser.
+### 5. The phone apps
+
+The Partner app (`partner-app/`) and the Vendor app (`vendor-app/`) work with the live site too,
+on the same accounts. Each app asks the server how to log in (`GET /api/config`): against the
+live site it shows an email and password login, and against the demo the phone number and any
+4 digits. The app logs in with Firebase itself and sends the server Firebase's signed proof, the
+same as the website, so the password never reaches LocalRush.
+
+- **Connect an app to the site**: on the login screen tap the server line, then **Change**, type
+  the site's address (for example `localrush.onrender.com`; the app adds `https://`), **Test**
+  and **Save**. To build the address into the app instead, put it in `EXPO_PUBLIC_SERVER_URL`
+  (in the app's `eas.json` for an APK, or in an `.env` file in the app's folder for Expo Go).
+- **Owners and partners log in** with the email the admin gave them. The first time, they tap
+  "First time here? Create your password", and confirm the email Firebase sends. Someone who uses
+  "Continue with Google" on the site taps "Set a password" once instead, to get a password for
+  the same account.
+- **A sleeping site**: on Render's free plan the site sleeps after 15 minutes without visitors.
+  The app waits up to a minute for it to wake, and says so.
 
 ## Things to know when you demo it
 

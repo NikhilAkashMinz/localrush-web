@@ -67,7 +67,7 @@ function ShopForm({ shop, onSaved, onCancel }: { shop?: AdminShop; onSaved: () =
         actions.toast(`${fields.name} saved`);
       } else {
         await api('POST', 'admin/shops', { ...fields, ownerName: ownerName.trim(), ownerEmail, ownerMobile });
-        actions.toast(`${fields.name} added. The owner can log in on the shop dashboard with ${ownerEmail}.`);
+        actions.toast(`${fields.name} added. The owner can log in on the shop dashboard or the Vendor app with ${ownerEmail}.`);
       }
       await actions.refreshCatalog();
       onSaved();
@@ -199,7 +199,7 @@ function OwnerForm({ shop, onSaved, onCancel }: { shop: AdminShop; onSaved: () =
     setBusy(true);
     try {
       await api('POST', `admin/shops/${encodeURIComponent(shop.id)}/owner`, { ownerName: name.trim(), ownerEmail: email, ownerMobile: mobile });
-      actions.toast(`${name.trim()} can now log in on the shop dashboard for ${shop.name} with ${email}.`);
+      actions.toast(`${name.trim()} can now log in on the shop dashboard or the Vendor app for ${shop.name} with ${email}.`);
       onSaved();
     } catch (err) {
       setError(errorText(err));
@@ -262,7 +262,7 @@ function PartnerForm({ onSaved }: { onSaved: () => void }) {
     setBusy(true);
     try {
       await api('POST', 'admin/partners', { name: name.trim(), email, mobile });
-      actions.toast(`${name.trim()} added. They can log in on the delivery partner screen with ${email}.`);
+      actions.toast(`${name.trim()} added. They can log in on the delivery partner screen or the Partner app with ${email}.`);
       setName('');
       setEmail('');
       setMobile('');
@@ -492,6 +492,10 @@ export default function AdminPage() {
         Shop owners log in at <b>/dashboard</b> and delivery partners at <b>/partner</b> on this site, with the email you
         give them here: &quot;Continue with Google&quot; for a Gmail address, or email and password for any other. Each
         email can have one account, so an email someone already shops with cannot become a shop owner or partner.
+      </p>
+      <p className="quiet small">
+        The LocalRush Vendor and Partner phone apps use the same accounts: owners and partners log in there with the same
+        email and a password. Someone who uses Google on this site taps &quot;Set a password&quot; in the app once to get one.
       </p>
     </div>
   );

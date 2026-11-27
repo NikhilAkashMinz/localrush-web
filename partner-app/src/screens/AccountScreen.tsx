@@ -46,7 +46,7 @@ export default function AccountScreen() {
         </View>
         <View style={st.profileText}>
           <Text style={st.name}>{user.name}</Text>
-          <Text style={st.phone}>{phoneText(user.phone)}</Text>
+          <Text style={st.phone}>{user.email ?? phoneText(user.phone ?? '')}</Text>
           <View style={st.pills}>
             <Pill text="Delivery partner" tone="teal" icon="moped" />
             <Pill text={user.online ? 'Online' : 'Offline'} tone={user.online ? 'green' : 'neutral'} dot={user.online ? color.green : color.faint} />

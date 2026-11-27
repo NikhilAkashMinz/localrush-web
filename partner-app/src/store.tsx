@@ -9,8 +9,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState, Vibration } from 'react-native';
-import { ApiError, createApi, errorText, type Api } from './api';
-import { cleanServer, detectedServer } from './config';
+import { ApiError, createApi, errorText, type Api, type LoginProof } from './api';
+import { cleanServer, defaultServer } from './config';
 import { km, plural, rupee } from './format';
 import { crow } from './geo';
 import { openLive } from './live';
@@ -90,7 +90,7 @@ type Actions = {
   api: Api;
   /** The delivery the partner is doing now, if any. */
   active: Order | null;
-  login(phone: string, code: string): Promise<void>;
+  login(proof: LoginProof): Promise<void>;
   logout(): Promise<void>;
   refresh(): Promise<void>;
   setOnline(online: boolean): Promise<void>;
@@ -271,7 +271,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const saved = savedServer ? cleanServer(savedServer) : null;
       update({
         ready: true,
-        server: saved ?? detectedServer() ?? '',
+        server: saved ?? defaultServer() ?? '',
         serverSaved: !!saved,
         token: loggedIn ? token : null,
         user: loggedIn ? user : null,
@@ -403,8 +403,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ---------- Actions ----------
 
   const login = useCallback(
-    async (phone: string, code: string) => {
-      const { user, token } = await api.login(phone, code);
+    async (proof: LoginProof) => {
+      const { user, token } = await api.login(proof);
       await Promise.all([AsyncStorage.setItem(KEY.token, token), AsyncStorage.setItem(KEY.user, JSON.stringify(user))]).catch(() => undefined);
       seen.current = new Set();
       firstLook.current = true;
@@ -470,10 +470,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (address: string | null) => {
       if (address === null) {
         await AsyncStorage.removeItem(KEY.server).catch(() => undefined);
-        update({ server: detectedServer() ?? '', serverSaved: false, reachable: null, problem: null });
+        update({ server: defaultServer() ?? '', serverSaved: false, reachable: null, problem: null });
       } else {
         const clean = cleanServer(address);
-        if (!clean) throw new Error('That is not a server address. It looks like http://192.168.1.5:3000');
+        if (!clean) throw new Error('That is not a server address. It looks like https://localrush.onrender.com, or http://192.168.1.5:3000 for a laptop.');
         await AsyncStorage.setItem(KEY.server, clean).catch(() => undefined);
         update({ server: clean, serverSaved: true, reachable: null, problem: null });
       }

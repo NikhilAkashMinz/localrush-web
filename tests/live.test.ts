@@ -307,6 +307,78 @@ test('with SAMPLE_SHOPS=true the live service starts with the sample shops, labe
   }
 });
 
+/** A request the way the phone apps send it: their seat, and the token instead of a cookie. */
+async function appCall(method: string, path: string, seat: string, token?: string, body?: unknown): Promise<Reply> {
+  const response = await handle(
+    new Request('http://test.local/api/' + path, {
+      method,
+      headers: {
+        'content-type': 'application/json',
+        'x-localrush-seat': seat,
+        'x-localrush-client': 'app',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
+  );
+  const setCookie = response.headers.get('set-cookie') ?? '';
+  return { status: response.status, data: await response.json(), cookie: setCookie.split(';')[0], setCookie };
+}
+
+test('the Vendor and Partner apps log in to the live service with an email and password, and get a token', async () => {
+  const { boss, shopId } = await shopWithMilk();
+  assert.equal((await call('POST', 'admin/partners', { as: boss, body: { name: 'Piyush', email: 'piyush@gmail.com', mobile: '9833333333' } })).status, 201);
+
+  // The apps ask how to log in, and get the public Firebase settings.
+  const config = (await appCall('GET', 'config', 'shop')).data;
+  assert.equal(config.mode, 'live');
+  assert.equal(config.login, 'firebase');
+  assert.equal(config.firebase.apiKey, 'test-api-key');
+  assert.equal(config.firebase.projectId, PROJECT);
+
+  // The demo's number and code are refused.
+  assert.equal((await appCall('POST', 'auth/login', 'shop', undefined, { phone: '9811111111', code: '1234' })).data.code, 'firebase-only');
+  // An email and password whose email is not confirmed yet is refused, with the code the app shows a resend button for.
+  const unconfirmed = idToken({ email: 'ramesh.owner@gmail.com', email_verified: false });
+  assert.equal((await appCall('POST', 'auth/login', 'shop', undefined, { idToken: unconfirmed })).data.code, 'verify-email');
+
+  // A confirmed email and password: the app gets a token, and no cookie.
+  const password = (email: string) => idToken({ email, email_verified: true, firebase: { sign_in_provider: 'password' } });
+  const vendor = await appCall('POST', 'auth/login', 'shop', undefined, { idToken: password('ramesh.owner@gmail.com') });
+  assert.equal(vendor.status, 200, JSON.stringify(vendor.data));
+  assert.equal(typeof vendor.data.token, 'string');
+  assert.equal(vendor.setCookie, '', 'the app keeps a token, not a cookie');
+  assert.equal(vendor.data.user.email, 'ramesh.owner@gmail.com');
+  assert.equal(vendor.data.user.storeId, shopId);
+  const partner = await appCall('POST', 'auth/login', 'partner', undefined, { idToken: password('piyush@gmail.com') });
+  assert.equal(partner.status, 200, JSON.stringify(partner.data));
+  assert.equal(partner.data.user.role, 'partner');
+
+  // Each login works only in its own app, with words each app can put its own way.
+  const wrong = await appCall('POST', 'auth/login', 'partner', undefined, { idToken: password('ramesh.owner@gmail.com') });
+  assert.equal(wrong.data.code, 'wrong-seat');
+  assert.match(wrong.data.error, /shop owner/);
+  assert.match((await appCall('POST', 'auth/login', 'shop', undefined, { idToken: password('piyush@gmail.com') })).data.error, /partner/);
+
+  // A website order reaches the Vendor app; once packed, the Partner app sees the job.
+  const customer = await login('asha@gmail.com');
+  const placed = await call('POST', 'orders', { as: customer, body: orderBody({ mobile: '9876543210' }) });
+  assert.equal(placed.status, 201, JSON.stringify(placed.data));
+  const orderId = placed.data.orders[0].id as string;
+  const board = await appCall('GET', 'orders', 'shop', vendor.data.token);
+  assert.equal(board.status, 200);
+  assert.deepEqual(board.data.orders.map((o: { id: string }) => o.id), [orderId]);
+  for (const step of ['accept', 'pack']) {
+    const moved = await appCall('POST', `orders/${orderId}/${step}`, 'shop', vendor.data.token, {});
+    assert.equal(moved.status, 200, `${step}: ${JSON.stringify(moved.data)}`);
+  }
+  assert.equal((await appCall('PUT', 'partner', 'partner', partner.data.token, { online: true, place: PES })).status, 200);
+  const jobs = await appCall('GET', 'orders', 'partner', partner.data.token);
+  assert.equal(jobs.status, 200);
+  assert.deepEqual(jobs.data.available.map((j: { id: string }) => j.id), [orderId]);
+  assert.equal((await appCall('POST', `orders/${orderId}/claim`, 'partner', partner.data.token, {})).status, 200);
+});
+
 test('a live server without its own SESSION_SECRET refuses every request', async () => {
   const saved = process.env.SESSION_SECRET;
   delete process.env.SESSION_SECRET;

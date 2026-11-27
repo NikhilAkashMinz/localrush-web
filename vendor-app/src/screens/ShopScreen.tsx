@@ -74,7 +74,7 @@ export default function ShopScreen() {
 
       <SectionTitle title="Your shop" />
       <Card style={st.gap}>
-        <Line icon="account-outline" label="Owner's login" value={phoneText(user.phone)} />
+        <Line icon="account-outline" label="Owner's login" value={user.email ?? phoneText(user.phone ?? '')} />
         {shop ? (
           <Line
             icon="clock-outline"

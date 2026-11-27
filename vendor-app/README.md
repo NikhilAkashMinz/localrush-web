@@ -116,8 +116,14 @@ With a free Expo account:
 npx eas-cli@latest build -p android --profile preview
 ```
 
-EAS builds it online and gives you a link to download the APK. The APK talks to the server over
-plain `http://` on your Wi-Fi, which `expo-build-properties` allows in `app.json`.
+EAS builds it online and gives you a link to download the APK.
+
+For the live LocalRush site, put its address in `eas.json` first, under
+`build.preview.env.EXPO_PUBLIC_SERVER_URL` (for example `https://localrush.onrender.com`), so the
+APK opens straight onto it and shows the email login. Without it, the APK starts with no server
+and the address is typed in once on the login screen (the server line, then **Change**). A
+laptop server on your Wi-Fi still works over plain `http://`, which `expo-build-properties`
+allows in `app.json`.
 
 ## Check the code
 
@@ -154,9 +160,11 @@ seconds.
 | `src/api.ts` | Every call to the server |
 | `src/live.ts` | The live connection: hears about changes the moment they happen |
 | `src/catalog.ts` | Categories, stock levels and shop hours (Indian time, like the website) |
-| `src/config.ts` | Working out the server address from Expo |
+| `src/config.ts` | The server address: built in for the live site, worked out from Expo, or typed in |
+| `src/firebase.ts` | Logging in to the live site with an email and password, through Firebase |
+| `src/screens/EmailLogin.tsx` | The live site's login: log in, create a password, set a new one |
 | `src/screens/` | Login, Orders, Products (with the product and new product sheets), Sales, Shop |
 | `src/ui.tsx`, `src/theme.ts` | Buttons, cards, fields, banners and the LocalRush colours |
 
-`src/config.ts`, `src/theme.ts` and much of `src/ui.tsx` are the same as in the delivery partner
+`src/config.ts`, `src/firebase.ts`, `src/screens/EmailLogin.tsx`, `src/screens/ServerSheet.tsx`, `src/theme.ts` and much of `src/ui.tsx` are the same as in the delivery partner
 app (`../partner-app`). Each app keeps its own copy so that it can be started on its own.

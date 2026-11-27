@@ -3,8 +3,8 @@
 //   - carries the login token from the server (Authorization: Bearer ...), not a cookie;
 //   - gives up after a few seconds, so a dropped Wi-Fi never leaves a button spinning.
 
-import type { Catalog, DemoAccount, Health, Me, NewProduct, Order, Period, Product, SalesReport } from './types';
-import { SERVER_PORT } from './config';
+import type { Config, Catalog, DemoAccount, Health, Me, NewProduct, Order, Period, Product, SalesReport } from './types';
+import { onLaptop, SERVER_PORT } from './config';
 
 /** An error the server explained, or a network problem. `message` can be shown to the owner as it is. */
 export class ApiError extends Error {
@@ -22,13 +22,17 @@ export const errorText = (e: unknown) => (e instanceof Error ? e.message : 'Some
 type Connection = () => { server: string; token: string | null };
 
 const TIMEOUT_MS = 10_000;
+/** The website on Render's free plan sleeps when nobody uses it, and takes up to a minute to wake. */
+const WAKE_MS = 75_000;
+
+export type LoginProof = { phone: string; code: string } | { idToken: string };
 
 export function createApi(connection: Connection) {
-  async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async function call<T>(method: string, path: string, body?: unknown, timeoutMs = TIMEOUT_MS): Promise<T> {
     const { server, token } = connection();
     if (!server) throw new ApiError('Set the LocalRush server address first (Shop → Server).', 0, 'network');
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
     try {
       response = await fetch(`${server}/api/${path}`, {
@@ -45,7 +49,9 @@ export function createApi(connection: Connection) {
       });
     } catch {
       throw new ApiError(
-        `Cannot reach the LocalRush server at ${server}. Check that it is running and that this phone is on the same Wi-Fi.`,
+        onLaptop(server)
+          ? `Cannot reach the LocalRush server at ${server}. Check that it is running and that this phone is on the same Wi-Fi.`
+          : `Cannot reach LocalRush at ${server}. Check this phone's internet connection and try again.`,
         0,
         'network',
       );
@@ -63,7 +69,9 @@ export function createApi(connection: Connection) {
     const isLocalRush = !!data && typeof data === 'object';
     if (!isLocalRush && (response.ok || response.status === 404)) {
       throw new ApiError(
-        `${server} is not the LocalRush server. Use the laptop's address with port ${SERVER_PORT}, for example http://192.168.1.5:${SERVER_PORT}, and check that "npm run dev" is running.`,
+        onLaptop(server)
+          ? `${server} is not the LocalRush server. Use the laptop's address with port ${SERVER_PORT}, for example http://192.168.1.5:${SERVER_PORT}, and check that "npm run dev" is running.`
+          : `${server} is not the LocalRush website. Check the address.`,
         0,
         'network',
       );
@@ -76,9 +84,12 @@ export function createApi(connection: Connection) {
   }
 
   return {
-    health: () => call<Health>('GET', 'health'),
+    health: () => call<Health>('GET', 'health', undefined, WAKE_MS),
+    /** Whether this is the demo or the live service, and how to log in. The first call can wake the server up. */
+    config: () => call<Config>('GET', 'config', undefined, WAKE_MS),
     demo: () => call<{ accounts: DemoAccount[] }>('GET', 'demo'),
-    login: (phone: string, code: string) => call<{ user: Me; token: string }>('POST', 'auth/login', { phone, code }),
+    /** The demo logs in with a number and any 4 digits; the live service with Firebase's proof of the person's email. */
+    login: (proof: LoginProof) => call<{ user: Me; token: string }>('POST', 'auth/login', proof),
     me: () => call<{ user: Me | null }>('GET', 'me'),
     /** Every order sent to this shop, newest first. */
     orders: () => call<{ orders: Order[] }>('GET', 'orders'),

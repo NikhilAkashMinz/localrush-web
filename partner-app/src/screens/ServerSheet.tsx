@@ -1,9 +1,9 @@
-// Where the LocalRush server is: worked out from Expo when possible, or typed in.
+// Where the LocalRush server is: the live website built into the app, the laptop Expo runs on, or typed in.
 
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { createApi, errorText } from '../api';
-import { cleanServer, detectedServer } from '../config';
+import { builtInServer, cleanServer, detectedServer } from '../config';
 import { useApp } from '../store';
 import { color, radius, type } from '../theme';
 import { Button, Icon, Sheet } from '../ui';
@@ -11,6 +11,9 @@ import { Button, Icon, Sheet } from '../ui';
 export default function ServerSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { server, serverSaved, setServer } = useApp();
   const detected = detectedServer();
+  const builtIn = builtInServer();
+  /** Where the app goes when the typed address is forgotten. */
+  const fallback = builtIn ?? detected;
   const [text, setText] = useState(server);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState<'test' | 'save' | null>(null);
@@ -24,12 +27,15 @@ export default function ServerSheet({ visible, onClose }: { visible: boolean; on
 
   const test = async () => {
     const clean = cleanServer(text);
-    if (!clean) return setResult({ ok: false, text: 'That is not a server address. It looks like http://192.168.1.5:3000' });
+    if (!clean) return setResult({ ok: false, text: 'That is not a server address. It looks like https://localrush.onrender.com, or http://192.168.1.5:3000 for a laptop.' });
     setBusy('test');
     try {
       const health = await createApi(() => ({ server: clean, token: null })).health();
       const db = health.database && health.database !== 'not used' ? `, database ${health.database}` : '';
-      setResult({ ok: true, text: `Connected to LocalRush. Storage: ${health.storage ?? 'unknown'}${db}.` });
+      setResult({
+        ok: true,
+        text: health.mode === 'live' ? 'Connected to LocalRush, the live service.' : `Connected to the LocalRush demo. Storage: ${health.storage ?? 'unknown'}${db}.`,
+      });
     } catch (e) {
       setResult({ ok: false, text: errorText(e) });
     }
@@ -56,8 +62,8 @@ export default function ServerSheet({ visible, onClose }: { visible: boolean; on
   return (
     <Sheet visible={visible} title="LocalRush server" onClose={onClose}>
       <Text style={st.p}>
-        The app talks to the LocalRush website running on your laptop. Use the laptop&apos;s Wi-Fi address and port 3000. The phone and
-        the laptop must be on the same Wi-Fi.
+        The app talks to the same server as the LocalRush website. Use the website&apos;s address, such as https://localrush.onrender.com. While
+        testing on a laptop, use the laptop&apos;s Wi-Fi address and port 3000, with the phone on the same Wi-Fi.
       </Text>
       <TextInput
         value={text}
@@ -68,11 +74,19 @@ export default function ServerSheet({ visible, onClose }: { visible: boolean; on
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="url"
-        placeholder="http://192.168.1.5:3000"
+        placeholder="https://localrush.onrender.com"
         placeholderTextColor={color.faint}
         style={st.input}
         accessibilityLabel="Server address"
       />
+      {builtIn && builtIn !== cleanServer(text) ? (
+        <Pressable onPress={() => setText(builtIn)} style={st.detected} accessibilityRole="button">
+          <Icon name="web" size={20} tint={color.teal} />
+          <Text style={st.detectedText}>
+            Use the LocalRush website: <Text style={st.bold}>{builtIn}</Text>
+          </Text>
+        </Pressable>
+      ) : null}
       {detected && detected !== cleanServer(text) ? (
         <Pressable onPress={() => setText(detected)} style={st.detected} accessibilityRole="button">
           <Icon name="laptop" size={20} tint={color.teal} />
@@ -91,15 +105,15 @@ export default function ServerSheet({ visible, onClose }: { visible: boolean; on
         <Button title="Test" kind="secondary" icon="lan-connect" onPress={test} busy={busy === 'test'} style={st.flex} />
         <Button title="Save" icon="check" onPress={save} busy={busy === 'save'} style={st.flex} />
       </View>
-      {serverSaved && detected ? (
+      {serverSaved && fallback ? (
         <Pressable onPress={useDetected} accessibilityRole="button" style={st.forget}>
-          <Text style={st.link}>Forget the typed address and use {detected}</Text>
+          <Text style={st.link}>Forget the typed address and use {fallback}</Text>
         </Pressable>
       ) : null}
       <View style={st.help}>
         <Icon name="information-outline" size={18} tint={color.mute} />
         <Text style={st.helpText}>
-          To find the laptop&apos;s address on Windows, open Command Prompt, run ipconfig and look for &quot;IPv4 Address&quot; under Wi-Fi.
+          Testing on a laptop? To find its address on Windows, open Command Prompt, run ipconfig and look for &quot;IPv4 Address&quot; under Wi-Fi.
           Start the website with npm run dev first.
         </Text>
       </View>
