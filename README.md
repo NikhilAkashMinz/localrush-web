@@ -281,6 +281,8 @@ send it as `Authorization: Bearer <token>`; a token works only on the seat it wa
 | `POST /admin/shops` | admin | Add a shop and its owner's account: `{ name, kind, area, lat, lng, open, close, ownerName, ownerEmail, ownerMobile }` |
 | `PUT /admin/shops/:id` | admin | Change a shop's details, or pause it |
 | `POST /admin/partners` | admin | Add a delivery partner: `{ name, email, mobile }` |
+| `POST /admin/sample-shops` | admin | Add the 15 sample shops with their stock, labelled as samples (safe to repeat) |
+| `POST /admin/shops/:id/owner` | admin | Give a shop without an owner its owner: `{ ownerName, ownerEmail, ownerMobile }` |
 | `GET /health` | everyone | Version, storage mode, database state, mode, and what live setup is missing |
 
 ## Where things live
@@ -450,6 +452,9 @@ visitors and takes up to a minute to wake; change `plan: free` to `starter` in `
 ### 4. First day
 
 1. Open the site and log in with your admin email (Google), then **Account > Open admin**.
+   No real shops yet? Press **Add sample shops**: the 15 sample Bangalore shops, with stock and
+   prices, labelled "Sample" everywhere so nobody takes them for real. Give one an owner (by email)
+   to run its orders in a demo, and pause them when real shops join.
 2. Add each shop: name, kind, area, location (stand in the shop and press "Use my location",
    or paste the numbers from Google Maps), opening hours, and the owner's name, **email** and
    (optionally) mobile.
