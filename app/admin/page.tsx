@@ -1,9 +1,10 @@
 'use client';
 
 // The admin page: how real shops and delivery partners join LocalRush. An admin adds a shop
-// with its owner's mobile number; the owner then logs in on the shop dashboard with an SMS code
-// and sets their own stock and prices. Partners are added the same way. Admins are the numbers
-// in the server's ADMIN_PHONES setting, and only on the live service (server/admin.ts).
+// with its owner's email; the owner then logs in on the shop dashboard with that email (Google,
+// or email and password) and sets their own stock and prices. Partners are added the same way.
+// Admins are the emails in the server's ADMIN_EMAILS setting, and only on the live service
+// (server/admin.ts).
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
@@ -12,7 +13,7 @@ import { KIND_LABEL, type Store, type StoreKind } from '@/lib/data';
 import { hourLabel } from '@/lib/format';
 import { actions, useStore } from '@/lib/state';
 
-type Person = { id: string; name: string; phone: string; createdAt: number };
+type Person = { id: string; name: string; email: string; mobile: string; createdAt: number };
 type AdminShop = Store & { owner: Person | null };
 type Overview = { shops: AdminShop[]; partners: (Person & { online: boolean })[] };
 
@@ -38,7 +39,8 @@ function ShopForm({ shop, onSaved, onCancel }: { shop?: AdminShop; onSaved: () =
   const [close, setClose] = useState(shop?.open[1] ?? 22);
   const [paused, setPaused] = useState(shop?.paused === true);
   const [ownerName, setOwnerName] = useState('');
-  const [ownerPhone, setOwnerPhone] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState('');
+  const [ownerMobile, setOwnerMobile] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -63,8 +65,8 @@ function ShopForm({ shop, onSaved, onCancel }: { shop?: AdminShop; onSaved: () =
         await api('PUT', `admin/shops/${encodeURIComponent(shop.id)}`, fields);
         actions.toast(`${fields.name} saved`);
       } else {
-        await api('POST', 'admin/shops', { ...fields, ownerName: ownerName.trim(), ownerPhone });
-        actions.toast(`${fields.name} added. The owner can log in on the shop dashboard with ${ownerPhone}.`);
+        await api('POST', 'admin/shops', { ...fields, ownerName: ownerName.trim(), ownerEmail, ownerMobile });
+        actions.toast(`${fields.name} added. The owner can log in on the shop dashboard with ${ownerEmail}.`);
       }
       await actions.refreshCatalog();
       onSaved();
@@ -126,10 +128,21 @@ function ShopForm({ shop, onSaved, onCancel }: { shop?: AdminShop; onSaved: () =
               <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} autoComplete="off" />
             </label>
             <label className="field">
-              <span>Owner&apos;s mobile number (they log in with it)</span>
+              <span>Owner&apos;s email (they log in with it)</span>
               <input
-                value={ownerPhone}
-                onChange={(e) => setOwnerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                type="email"
+                value={ownerEmail}
+                onChange={(e) => setOwnerEmail(e.target.value.trim())}
+                inputMode="email"
+                autoComplete="off"
+                placeholder="name@gmail.com"
+              />
+            </label>
+            <label className="field">
+              <span>Owner&apos;s mobile number (optional, to call them)</span>
+              <input
+                value={ownerMobile}
+                onChange={(e) => setOwnerMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
                 inputMode="numeric"
                 autoComplete="off"
                 placeholder="10 digits"
@@ -173,7 +186,8 @@ function ShopForm({ shop, onSaved, onCancel }: { shop?: AdminShop; onSaved: () =
 
 function PartnerForm({ onSaved }: { onSaved: () => void }) {
   const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [mobile, setMobile] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -182,10 +196,11 @@ function PartnerForm({ onSaved }: { onSaved: () => void }) {
     setError('');
     setBusy(true);
     try {
-      await api('POST', 'admin/partners', { name: name.trim(), phone });
-      actions.toast(`${name.trim()} added. They can log in on the delivery partner screen with ${phone}.`);
+      await api('POST', 'admin/partners', { name: name.trim(), email, mobile });
+      actions.toast(`${name.trim()} added. They can log in on the delivery partner screen with ${email}.`);
       setName('');
-      setPhone('');
+      setEmail('');
+      setMobile('');
       onSaved();
     } catch (err) {
       setError(errorText(err));
@@ -201,10 +216,21 @@ function PartnerForm({ onSaved }: { onSaved: () => void }) {
           <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
         </label>
         <label className="field">
-          <span>Mobile number (they log in with it)</span>
+          <span>Email (they log in with it)</span>
           <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value.trim())}
+            inputMode="email"
+            autoComplete="off"
+            placeholder="name@gmail.com"
+          />
+        </label>
+        <label className="field">
+          <span>Mobile number (optional, to call them)</span>
+          <input
+            value={mobile}
+            onChange={(e) => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
             inputMode="numeric"
             autoComplete="off"
             placeholder="10 digits"
@@ -251,10 +277,10 @@ export default function AdminPage() {
       <div className="page page-narrow">
         <h1 className="title">LocalRush admin</h1>
         <div className="empty empty-page">
-          <h2>{user ? 'This page is for LocalRush admins' : 'Log in with your admin number'}</h2>
+          <h2>{user ? 'This page is for LocalRush admins' : 'Log in with your admin email'}</h2>
           <p className="quiet">
-            Admins add the shops and delivery partners. An admin is someone whose mobile number is in the server&apos;s
-            ADMIN_PHONES setting, on the live service.
+            Admins add the shops and delivery partners. An admin is someone whose email is in the server&apos;s
+            ADMIN_EMAILS setting, on the live service.
           </p>
           {!user && (
             <Link href="/login?next=/admin" className="btn">
@@ -320,7 +346,7 @@ export default function AdminPage() {
                       <small>
                         {KIND_LABEL[s.kind]} in {s.area} · {hourLabel(s.open[0])} to {s.open[1] === 24 ? 'midnight' : hourLabel(s.open[1])}
                       </small>
-                      <small>{s.owner ? `Owner: ${s.owner.name}, ${s.owner.phone}` : 'No owner account'}</small>
+                      <small>{s.owner ? `Owner: ${[s.owner.name, s.owner.email, s.owner.mobile].filter(Boolean).join(', ')}` : 'No owner account'}</small>
                     </span>
                     <button type="button" className="link" onClick={() => setEditing(s.id)}>
                       Edit
@@ -343,7 +369,7 @@ export default function AdminPage() {
               <li key={p.id}>
                 <span>
                   <b>{p.name}</b>
-                  <small>{p.phone}</small>
+                  <small>{[p.email, p.mobile].filter(Boolean).join(', ')}</small>
                 </span>
                 <small className={p.online ? 'ad-on' : 'quiet'}>{p.online ? 'Online' : 'Offline'}</small>
               </li>
@@ -354,9 +380,9 @@ export default function AdminPage() {
       </section>
 
       <p className="quiet small">
-        Shop owners log in at <b>/dashboard</b> and delivery partners at <b>/partner</b> on this site, with the number you
-        give them here. Each number can have one account, so a number someone already orders with cannot become a shop
-        owner or partner.
+        Shop owners log in at <b>/dashboard</b> and delivery partners at <b>/partner</b> on this site, with the email you
+        give them here: &quot;Continue with Google&quot; for a Gmail address, or email and password for any other. Each
+        email can have one account, so an email someone already shops with cannot become a shop owner or partner.
       </p>
     </div>
   );

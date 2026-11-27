@@ -3,7 +3,7 @@
 // It always answers 200 while the site itself is up: a database problem is reported in
 // the reply, but it must not make Kubernetes restart a healthy web server.
 
-import { adminPhones, loginMethod, missingSecret, mode } from '@/server/config';
+import { adminEmails, adminPhones, loginMethod, missingSecret, mode } from '@/server/config';
 import { getRepo, storeMode } from '@/server/repo';
 
 export const dynamic = 'force-dynamic';
@@ -27,10 +27,10 @@ export async function GET() {
     database: await database(),
     // "live" is the real service, "demo" the showcase with sample shops (server/config.ts).
     mode: mode(),
-    // What still needs setting up, without revealing any value: "sms" means Firebase login works.
+    // What still needs setting up, without revealing any value: "firebase" means logging in works.
     login: loginMethod(),
     sessionSecret: missingSecret() ? 'missing' : 'set',
-    admins: adminPhones().length,
+    admins: adminEmails().length + adminPhones().length,
     time: new Date().toISOString(),
   });
 }

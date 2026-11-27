@@ -13,7 +13,15 @@ export type TrailPoint = { lat: number; lng: number; at: number };
 export type User = {
   id: string;
   name: string;
-  phone: string;
+  /**
+   * The mobile number this account logs in with (the demo, or an SMS login). One account per
+   * number. Accounts on the live service log in with `email` instead and may not have one.
+   */
+  phone?: string;
+  /** The verified email this account logs in with (Google, or email and password). One account per email. */
+  email?: string;
+  /** The number to call about deliveries, when it is not the login `phone` (see contactOf). */
+  mobile?: string;
   role: Role;
   /** Shop owners: the shop they run. */
   storeId?: string;
@@ -70,6 +78,8 @@ export interface Repo {
   giveStock(storeId: string, productId: string, qty: number): Promise<void>;
 
   userByPhone(phone: string): Promise<User | null>;
+  /** Emails are kept in lower case. */
+  userByEmail(email: string): Promise<User | null>;
   userById(id: string): Promise<User | null>;
   putUser(u: User): Promise<void>;
   /** Every account of one kind, oldest first. Used by the admin page. */

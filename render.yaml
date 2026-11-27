@@ -1,7 +1,7 @@
 # Render Blueprint: deploys the LocalRush website and API from the Dockerfile, as the live
-# service (real SMS login, no sample data). In Render choose New > Blueprint and pick this
-# repository. Render asks once for each value marked "sync: false" (see README, "Going live"),
-# and makes SESSION_SECRET itself.
+# service (login with Google or email through Firebase, no sample data). In Render choose
+# New > Blueprint and pick this repository. Render asks once for each value marked
+# "sync: false" (see README, "Going live"), and makes SESSION_SECRET itself.
 services:
   - type: web
     name: localrush
@@ -21,13 +21,13 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
-      # From Firebase: Project settings > General > Your apps > Web app (SMS login).
+      # From Firebase: Project settings > General > Your apps > Web app.
       - key: FIREBASE_PROJECT_ID
         sync: false
       - key: FIREBASE_API_KEY
         sync: false
-      # Mobile numbers that may use /admin to add shops and partners, comma separated.
-      - key: ADMIN_PHONES
+      # Emails that may use /admin to add shops and partners, comma separated.
+      - key: ADMIN_EMAILS
         sync: false
       - key: PORT
         value: "3000"

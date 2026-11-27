@@ -9,7 +9,7 @@ import { partnerPay, RIDER_FRESH_MS, type Order, type OrderLine, type Status } f
 import { earningsReport, isPeriod, salesReport, type EarningsReport, type SalesReport } from '../lib/reports';
 import { planOrder, type Line, type Mode } from '../lib/select';
 import { clock } from './clock';
-import { adminPhones, firebaseConfig, isLive } from './config';
+import { adminEmails, adminPhones, firebaseConfig, isLive } from './config';
 import { verifyIdToken } from './firebase';
 import type { Address, Repo, TrailPoint, User } from './types';
 
@@ -68,6 +68,8 @@ export function publicUser(u: User) {
     id: u.id,
     name: u.name,
     phone: u.phone,
+    email: u.email,
+    mobile: contactOf(u),
     role: u.role,
     storeId: u.storeId,
     online: u.online,
@@ -77,15 +79,25 @@ export function publicUser(u: User) {
   };
 }
 
+/** The number to call this person on: the one they gave for deliveries, else their login number. */
+export const contactOf = (u: User) => u.mobile || u.phone || '';
+
 /**
- * Admins add the real shops and delivery partners. An admin is a customer account whose
- * number is in ADMIN_PHONES, and only on the live service, where logging in takes a real
- * SMS code: in the demo any 4 digits would make anyone an admin.
+ * Admins add the real shops and delivery partners. An admin is a customer account whose email
+ * is in ADMIN_EMAILS (or number in ADMIN_PHONES), and only on the live service, where logging
+ * in is checked by Firebase: in the demo any 4 digits would make anyone an admin.
  */
-export const isAdmin = (u: User | null) => !!u && u.role === 'customer' && isLive() && adminPhones().includes(u.phone);
+export const isAdmin = (u: User | null) =>
+  !!u &&
+  u.role === 'customer' &&
+  isLive() &&
+  ((!!u.email && adminEmails().includes(u.email)) || (!!u.phone && adminPhones().includes(u.phone)));
 
 const KIND: Record<User['role'], string> = { customer: 'customer', shop: 'shop owner', partner: 'delivery partner' };
 const WHERE: Record<User['role'], string> = { customer: 'the customer site', shop: 'the shop dashboard', partner: 'the delivery partner screen' };
+
+/** Who a login proves the person is: the owner of an email address, or of a mobile number. */
+type Identity = { email: string; name?: string } | { phone: string; name?: string };
 
 /**
  * Log in on one seat. The customer site logs in customers (and signs up new ones); the shop
@@ -97,42 +109,54 @@ export async function login(
   input: { name?: unknown; phone?: unknown; code?: unknown; idToken?: unknown },
   seat: User['role'] = 'customer',
 ): Promise<User> {
-  const phone = await provenPhone(input);
-  const existing = await repo.userByPhone(phone);
+  const who = await provenIdentity(input);
+  const existing = 'email' in who ? await repo.userByEmail(who.email) : await repo.userByPhone(who.phone);
+  const what = 'email' in who ? 'email' : 'number';
   if (existing && existing.role !== seat) {
-    throw new ApiError(409, `That number belongs to a ${KIND[existing.role]}. Log in on ${WHERE[existing.role]} instead.`, 'wrong-seat');
+    throw new ApiError(409, `That ${what} belongs to a ${KIND[existing.role]}. Log in on ${WHERE[existing.role]} instead.`, 'wrong-seat');
   }
   if (existing) return existing;
-  if (seat !== 'customer') throw new ApiError(404, `No ${KIND[seat]} account uses that number.`, 'unknown');
-  if (!isText(input.name, 2, 60)) throw new ApiError(400, 'Enter your name.');
-  const user: User = { id: id('u-', 6), name: input.name.trim(), phone, role: 'customer', addresses: [], createdAt: clock.now() };
+  if (seat !== 'customer') {
+    throw new ApiError(404, `No ${KIND[seat]} account uses that ${what}. Ask the LocalRush team to add you.`, 'unknown');
+  }
+  // A new customer: the name they typed, or the one on their Google account.
+  const name = isText(input.name, 2, 60) ? input.name.trim() : who.name && who.name.length >= 2 ? who.name : null;
+  if (!name) throw new ApiError(400, 'Enter your name.', 'name');
+  const user: User = { id: id('u-', 6), name, ...('email' in who ? { email: who.email } : { phone: who.phone }), role: 'customer', addresses: [], createdAt: clock.now() };
   await repo.putUser(user);
   return user;
 }
 
 /**
- * The mobile number the person has shown they own. With SMS login that is the number inside
- * Firebase's signed token, after the person typed the code Firebase texted them. In the demo,
- * the number they typed, with any 4 digits; the live service never accepts that.
+ * Who the person has shown they are. Through Firebase: a verified email (Google, or email
+ * and password once confirmed) or a mobile number (an SMS code), read from Firebase's signed
+ * token. In the demo: the number they typed, with any 4 digits; the live service never
+ * accepts that.
  */
-async function provenPhone(input: { phone?: unknown; code?: unknown; idToken?: unknown }): Promise<string> {
+async function provenIdentity(input: { phone?: unknown; code?: unknown; idToken?: unknown }): Promise<Identity> {
   if (typeof input.idToken === 'string' && input.idToken) {
     const firebase = firebaseConfig();
-    if (!firebase) throw new ApiError(503, 'Login by SMS is not set up on this server yet.', 'no-sms');
+    if (!firebase) throw new ApiError(503, 'Logging in is not set up on this server yet.', 'no-login');
+    let proven;
     try {
-      return (await verifyIdToken(input.idToken, firebase.projectId)).phone;
-    } catch (e) {
-      const why = e instanceof Error ? e.message : String(e);
-      const text = why === 'not an Indian mobile number' ? 'Only Indian mobile numbers (+91) can log in.' : 'That login could not be confirmed. Ask for a new code.';
-      throw new ApiError(401, text, 'otp');
+      proven = await verifyIdToken(input.idToken, firebase.projectId);
+    } catch {
+      throw new ApiError(401, 'That login could not be confirmed. Please try again.', 'login-failed');
     }
+    if (proven.email && proven.emailVerified) return { email: proven.email, name: proven.name };
+    if (proven.phone) return { phone: proven.phone, name: proven.name };
+    if (proven.email) {
+      throw new ApiError(401, 'Confirm your email address first: open the link we emailed you, then log in again.', 'verify-email');
+    }
+    throw new ApiError(401, 'That login did not include an email address or an Indian mobile number.', 'login-failed');
   }
-  if (isLive()) throw new ApiError(400, 'Log in with the code we send you by SMS.', 'sms-only');
+  if (isLive()) throw new ApiError(400, 'Log in with Google or your email.', 'firebase-only');
   if (typeof input.phone !== 'string' || !/^[6-9]\d{9}$/.test(input.phone)) throw new ApiError(400, 'Enter a 10-digit mobile number.');
   // Demo login: any 4 digits are accepted.
   if (typeof input.code !== 'string' || !/^\d{4}$/.test(input.code)) throw new ApiError(400, 'Enter the 4-digit code.');
-  return input.phone;
+  return { phone: input.phone };
 }
+
 
 export async function rename(repo: Repo, user: User, name: unknown): Promise<User> {
   if (!isText(name, 2, 60)) throw new ApiError(400, 'Enter a name of at least 2 letters.');
@@ -162,8 +186,13 @@ export function viewOrder(o: Order, user: User): Order {
   return o.partnerId === user.id ? seen : { ...seen, customerPhone: '' };
 }
 
-/** A customer's orders are the ones placed with their mobile number. */
-const ownsOrder = (user: User, o: Order) => user.role === 'customer' && (o.customerPhone === user.phone || o.customerId === user.id);
+/**
+ * A customer's orders: the ones placed from their account, and, for an account that logs in
+ * with its mobile number (the demo), every order placed with that number. A delivery number
+ * typed at checkout is not proof of anything, so it never brings anyone else's orders.
+ */
+const ownsOrder = (user: User, o: Order) =>
+  user.role === 'customer' && (o.customerId === user.id || (!!user.phone && o.customerPhone === user.phone));
 
 /** Copy each product's name and pack size into the order, so it reads the same later. */
 const named = (lines: Line[]): OrderLine[] =>
@@ -172,15 +201,16 @@ const named = (lines: Line[]): OrderLine[] =>
     return p ? { ...l, name: p.name, unit: p.unit } : { ...l };
   });
 
-/** Live-update channels. A customer's follows their mobile number, like their order history. */
+/** Live-update channels. A customer follows their account, and their login number (see ownsOrder). */
 const channelsFor = (o: Order, extra: string[] = []) => [
+  'user:' + o.customerId,
   'phone:' + o.customerPhone,
   'store:' + o.storeId,
   ...(o.partnerId ? ['partner:' + o.partnerId] : []),
   ...extra,
 ];
 
-type PlaceInput = { cart?: unknown; place?: unknown; line?: unknown; tag?: unknown; payment?: unknown; mode?: unknown };
+type PlaceInput = { cart?: unknown; place?: unknown; line?: unknown; tag?: unknown; payment?: unknown; mode?: unknown; mobile?: unknown };
 
 export async function placeOrder(repo: Repo, user: User, input: PlaceInput) {
   if (user.role !== 'customer') throw new ApiError(403, 'Only customers can place orders.');
@@ -197,6 +227,11 @@ export async function placeOrder(repo: Repo, user: User, input: PlaceInput) {
   }
   const place = input.place;
   const line = input.line.trim();
+  // The number the delivery partner calls: the one given with this order, else the one on the account.
+  const mobile = typeof input.mobile === 'string' && input.mobile ? input.mobile : contactOf(user);
+  if (!/^[6-9]\d{9}$/.test(mobile)) {
+    throw new ApiError(400, 'Add your 10-digit mobile number, so the delivery partner can call you.', 'mobile');
+  }
 
   // Two tries: if someone else buys the last one between planning and taking stock, plan again.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -228,7 +263,7 @@ export async function placeOrder(repo: Repo, user: User, input: PlaceInput) {
       id: id('LR', 3),
       customerId: user.id,
       customerName: user.name,
-      customerPhone: user.phone,
+      customerPhone: mobile,
       storeId: s.near.store.id,
       storeName: s.near.store.name,
       lines: named(s.lines),
@@ -252,10 +287,12 @@ export async function placeOrder(repo: Repo, user: User, input: PlaceInput) {
     }));
     for (const o of orders) await repo.insertOrder(o);
 
-    if (!user.addresses.some((a) => a.line === line && a.place.label === place.label)) {
+    // Remember a new address, and a new delivery number, for next time.
+    const newAddress = !user.addresses.some((a) => a.line === line && a.place.label === place.label);
+    if (newAddress || mobile !== contactOf(user)) {
       const tag = isText(input.tag, 1, 20) ? input.tag.trim() : 'Home';
-      const address: Address = { id: id('a-'), tag, line, place };
-      await repo.putUser({ ...user, addresses: [address, ...user.addresses].slice(0, 8) });
+      const addresses = newAddress ? [{ id: id('a-'), tag, line, place } as Address, ...user.addresses].slice(0, 8) : user.addresses;
+      await repo.putUser({ ...user, addresses, mobile });
     }
     await repo.bump(['catalog', ...orders.flatMap((o) => channelsFor(o))]);
     return { orders, leftOut: plan.unavailable };
@@ -265,7 +302,9 @@ export async function placeOrder(repo: Repo, user: User, input: PlaceInput) {
 
 export async function listOrders(repo: Repo, user: User) {
   if (user.role === 'customer') {
-    const orders = await repo.orders({ customerPhone: user.phone });
+    // Every order from this account, and for a number login, every order with that number.
+    const found = await Promise.all([repo.orders({ customerId: user.id }), ...(user.phone ? [repo.orders({ customerPhone: user.phone })] : [])]);
+    const orders = [...new Map(found.flat().map((o) => [o.id, o])).values()].sort((a, b) => b.createdAt - a.createdAt);
     // Checked again here so a customer can only ever be sent their own orders, even by a
     // database layer that missed the filter (an old one kept alive by a dev-server reload).
     return { orders: await withRider(repo, orders.filter((o) => ownsOrder(user, o)).map((o) => viewOrder(o, user))) };
@@ -541,7 +580,7 @@ export async function setPartner(repo: Repo, user: User, input: { online?: unkno
       delete next.gpsAt;
       delete next.trail;
     }
-    channels.push(...riding.map((o) => 'phone:' + o.customerPhone));
+    channels.push(...riding.flatMap((o) => ['user:' + o.customerId, 'phone:' + o.customerPhone]));
   }
   await repo.putUser(next);
   await repo.bump(channels);

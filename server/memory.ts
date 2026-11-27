@@ -60,6 +60,10 @@ export function createMemoryRepo(): Repo {
       for (const u of users.values()) if (u.phone === phone) return copy(u);
       return null;
     },
+    async userByEmail(email) {
+      for (const u of users.values()) if (u.email === email) return copy(u);
+      return null;
+    },
     async userById(id) {
       const u = users.get(id);
       return u ? copy(u) : null;

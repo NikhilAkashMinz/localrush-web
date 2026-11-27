@@ -23,7 +23,8 @@ export default function PrivacyPage() {
 
       <h2>What we keep</h2>
       <ul>
-        <li>Your name and mobile number, to log you in and to know whose order it is.</li>
+        <li>Your name and email address, to log you in and to know whose orders are yours.</li>
+        <li>The mobile number you give at checkout, so the delivery partner can call you.</li>
         <li>The delivery addresses you save, and the location you choose or share with &quot;Use my location&quot;.</li>
         <li>Your orders: what you bought, from which shop, the price, and how it was delivered.</li>
         <li>
@@ -43,7 +44,7 @@ export default function PrivacyPage() {
 
       <h2>Services we use</h2>
       <ul>
-        <li>Google Firebase sends the SMS with your login code, and so receives your mobile number.</li>
+        <li>Google Firebase checks your login (your Google account, or your email and password) and so receives your email address.</li>
         <li>MongoDB Atlas stores LocalRush&apos;s data, and Render runs the website.</li>
         <li>
           OpenStreetMap provides the map and the list of other shops nearby; only the rough area (about 1 km) is sent to

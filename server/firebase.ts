@@ -1,7 +1,8 @@
-// Checking a Firebase sign-in. The browser (or phone app) proves the person owns a mobile
-// number by entering the SMS code Firebase sent; Firebase then gives it an ID token, a JWT
-// signed by Google. This file checks that token the way Firebase documents it: the signature
-// against Google's published keys, then who issued it, for which project, and when.
+// Checking a Firebase sign-in. The browser (or phone app) signs the person in with Firebase:
+// with their Google account, with an email and password, or with an SMS code. Firebase then
+// gives it an ID token, a JWT signed by Google. This file checks that token the way Firebase
+// documents it: the signature against Google's published keys, then who issued it, for which
+// project, and when, and says what it proves (a verified email, or a mobile number).
 // Only Node's crypto is used: no Firebase Admin SDK and no service-account key is needed.
 // https://firebase.google.com/docs/auth/admin/verify-id-tokens#verify_id_tokens_using_a_third-party_jwt_library
 
@@ -42,13 +43,33 @@ async function keyFor(kid: string): Promise<string | undefined> {
 
 const part = <T>(text: string): T => JSON.parse(Buffer.from(text, 'base64url').toString('utf8')) as T;
 
-type Claims = { aud?: unknown; iss?: unknown; sub?: unknown; exp?: unknown; iat?: unknown; auth_time?: unknown; phone_number?: unknown };
+type Claims = {
+  aud?: unknown;
+  iss?: unknown;
+  sub?: unknown;
+  exp?: unknown;
+  iat?: unknown;
+  auth_time?: unknown;
+  phone_number?: unknown;
+  email?: unknown;
+  email_verified?: unknown;
+  name?: unknown;
+};
 
-/**
- * The mobile number a Firebase ID token proves, as 10 digits, or an Error saying why not.
- * Only Indian numbers (+91) are accepted, like everywhere else in LocalRush.
- */
-export async function verifyIdToken(token: string, projectId: string): Promise<{ uid: string; phone: string }> {
+/** What a genuine Firebase sign-in proves about the person. */
+export type Proven = {
+  uid: string;
+  /** Their email in lower case, if the token has one, and whether they have shown they own it. */
+  email?: string;
+  emailVerified: boolean;
+  /** An Indian mobile number as 10 digits, after an SMS code. */
+  phone?: string;
+  /** The name on their Google account, when they signed in with Google. */
+  name?: string;
+};
+
+/** Check a Firebase ID token and say what it proves, or throw an Error saying why it is not genuine. */
+export async function verifyIdToken(token: string, projectId: string): Promise<Proven> {
   const [h, p, s, extra] = token.split('.');
   if (!h || !p || !s || extra !== undefined) throw new Error('not a token');
   const header = part<{ alg?: string; kid?: string }>(h);
@@ -68,6 +89,7 @@ export async function verifyIdToken(token: string, projectId: string): Promise<{
   if (typeof c.iat !== 'number' || c.iat - SKEW_S > now) throw new Error('issued in the future');
   if (typeof c.auth_time !== 'number' || c.auth_time - SKEW_S > now) throw new Error('signed in in the future');
   const phone = typeof c.phone_number === 'string' ? /^\+91([6-9]\d{9})$/.exec(c.phone_number)?.[1] : undefined;
-  if (!phone) throw new Error('not an Indian mobile number');
-  return { uid: c.sub, phone };
+  const email = typeof c.email === 'string' && c.email.length <= 254 ? c.email.trim().toLowerCase() : undefined;
+  const name = typeof c.name === 'string' && c.name.trim() ? c.name.trim().slice(0, 60) : undefined;
+  return { uid: c.sub, email, emailVerified: c.email_verified === true, phone, name };
 }

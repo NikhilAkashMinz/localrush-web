@@ -66,6 +66,8 @@ export default function CheckoutPage() {
   const here = (user?.addresses ?? []).filter((a) => a.place.label === place.label);
   const [line, setLine] = useState(here[0]?.line ?? '');
   const [tag, setTag] = useState(here[0]?.tag ?? 'Home');
+  // The number the delivery partner calls. Remembered from the last order.
+  const [mobile, setMobile] = useState(user?.mobile ?? user?.phone ?? '');
   const [payment, setPayment] = useState<'cod' | 'online'>('cod');
   const [upi, setUpi] = useState('');
   const [error, setError] = useState('');
@@ -112,13 +114,14 @@ export default function CheckoutPage() {
   const placeOrder = async () => {
     setError('');
     if (line.trim().length < 6) return setError('Add your flat, building and street so the delivery partner can find you.');
+    if (!/^[6-9]\d{9}$/.test(mobile)) return setError('Add your 10-digit mobile number, so the delivery partner can call you.');
     if (payment === 'online' && !/^[\w.-]{2,}@[a-zA-Z]{2,}$/.test(upi.trim())) {
       return setError('Enter a UPI ID like name@bank, or choose cash on delivery.');
     }
     setPaying(true);
     try {
       // The server chooses the shops again from live stock, so what it creates is what counts.
-      const { orders, leftOut } = await actions.placeOrders({ line: line.trim(), tag, payment });
+      const { orders, leftOut } = await actions.placeOrders({ line: line.trim(), tag, payment, mobile });
       const left = leftOut.length ? ` ${leftOut.length === 1 ? '1 item was' : `${leftOut.length} items were`} left out.` : '';
       actions.toast((orders.length === 1 ? 'Order placed.' : `${orders.length} orders placed.`) + left);
       router.push(orders.length === 1 ? `/orders/${orders[0].id}` : '/orders');
@@ -179,6 +182,16 @@ export default function CheckoutPage() {
                 </button>
               ))}
             </div>
+            <label className="field">
+              <span>Mobile number, for the delivery partner to call you</span>
+              <input
+                value={mobile}
+                onChange={(e) => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                inputMode="numeric"
+                autoComplete="tel-national"
+                placeholder="10 digits"
+              />
+            </label>
           </section>
 
           <section className="box">

@@ -1,8 +1,9 @@
 // How this copy of LocalRush runs, from its environment variables.
 //
 // "demo" is the showcase: sample shops and stock, ready-made shop owner and partner accounts,
-// and any 4-digit code logs in. "live" is the real service: people log in with a code sent by
-// SMS (Firebase), there is no sample data, and shops and partners are added by an admin.
+// and any 4-digit code logs in. "live" is the real service: people log in through Firebase
+// (their Google account, or an email and password), there is no sample data, and shops and
+// partners are added by an admin.
 //
 // LOCALRUSH_MODE chooses. Without it, a production server (NODE_ENV=production, as in the
 // Docker image) is live and everything else (npm run dev, the tests) is demo, so a real
@@ -26,19 +27,25 @@ export function firebaseConfig(): { apiKey: string; authDomain: string; projectI
   return { apiKey, projectId, authDomain: process.env.FIREBASE_AUTH_DOMAIN?.trim() || `${projectId}.firebaseapp.com` };
 }
 
-/** How people log in here: a real SMS code, the demo's any 4 digits, or not at all yet. */
-export function loginMethod(): 'sms' | 'demo' | 'off' {
-  if (firebaseConfig()) return 'sms';
+/**
+ * How people log in here: with Firebase (Google, or email and password), the demo's phone
+ * number and any 4 digits, or not at all yet (a live server without Firebase settings).
+ */
+export function loginMethod(): 'firebase' | 'demo' | 'off' {
+  if (firebaseConfig()) return 'firebase';
   return isLive() ? 'off' : 'demo';
 }
 
-/** The mobile numbers allowed to add shops and partners (ADMIN_PHONES, comma separated). */
-export function adminPhones(): string[] {
-  return (process.env.ADMIN_PHONES ?? '')
-    .split(/[\s,;]+/)
+const list = (value: string | undefined) => (value ?? '').split(/[\s,;]+/).filter(Boolean);
+
+/** The emails allowed to add shops and partners (ADMIN_EMAILS, comma separated). */
+export const adminEmails = () => list(process.env.ADMIN_EMAILS).map((e) => e.toLowerCase());
+
+/** Mobile numbers allowed to do the same, for a server that logs in by SMS (ADMIN_PHONES). */
+export const adminPhones = () =>
+  list(process.env.ADMIN_PHONES)
     .map((p) => p.replace(/\D/g, '').slice(-10))
     .filter((p) => /^[6-9]\d{9}$/.test(p));
-}
 
 /** Contact details shown on the privacy page, so people know whom to ask. */
 export const supportContact = () => process.env.SUPPORT_CONTACT?.trim() || '';

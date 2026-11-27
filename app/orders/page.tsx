@@ -53,8 +53,8 @@ export default function OrdersPage() {
         <div className="empty empty-page">
           <h2>No orders yet</h2>
           <p className="quiet">
-            When you place an order, you can follow it here. Your orders are saved with your mobile number,{' '}
-            {user.phone}, so they are here whenever you log in with it.
+            When you place an order, you can follow it here. Your orders are saved with your account,{' '}
+            {user.email ?? user.phone}, so they are here whenever you log in with it.
           </p>
           <Link href="/" className="btn">
             Browse shops
@@ -64,7 +64,7 @@ export default function OrdersPage() {
         <>
           <p className="quiet orders-sum">
             {orders.length} {orders.length === 1 ? 'order' : 'orders'} · {rupee(spent)} spent on {delivered.length} delivered.
-            Saved with your mobile number, {user.phone}: log in with it on any device to see them.
+            Saved with your account, {user.email ?? user.phone}: log in with it on any device to see them.
           </p>
           <ul className="orders">
             {orders.map((o) => {

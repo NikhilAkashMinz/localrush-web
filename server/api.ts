@@ -77,7 +77,7 @@ function need(user: User | null): User {
 // ---------- Rate limits ----------
 // These stop one address flooding logins, changes or the shop search. They are generous on
 // purpose: Indian mobile networks put many people behind one shared address, and a partner's
-// phone sends its position every few seconds. Firebase limits the SMS codes themselves.
+// phone sends its position every few seconds. Firebase limits failed logins itself.
 // Counted per copy of the server.
 
 const LIMITS: { match: (route: string) => boolean; per: number; windowMs: number; name: string }[] = [
@@ -202,7 +202,7 @@ export async function handle(request: Request): Promise<Response> {
       case 'GET live':
         return liveResponse(repo, channelsFor(user), request);
 
-      // The admin page is on the customer site: an admin is a customer whose number is in ADMIN_PHONES.
+      // The admin page is on the customer site: an admin is a customer whose email is in ADMIN_EMAILS.
       case 'GET admin':
         return json(await admin.overview(repo, user));
       case 'POST admin/shops':

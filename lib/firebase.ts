@@ -1,19 +1,20 @@
 'use client';
 
-// Logging in with a code sent by SMS. On the live service Firebase sends the SMS and checks the
-// code; the page then hands Firebase's signed token to our server, which reads the proven mobile
-// number from it (server/firebase.ts). In the demo there is no SMS and any 4 digits work.
-// Firebase is only loaded once someone asks for a code, so it never slows other pages down.
+// Logging in through Firebase on the live service: "Continue with Google", or an email and a
+// password. Firebase checks the person and gives the page a token signed by Google; our server
+// reads the verified email from it (server/firebase.ts) and keeps the login from there on.
+// Both ways are free on Firebase's no-cost plan. In the demo there is no Firebase: the phone
+// number and any 4 digits work. Firebase is only loaded once someone starts to log in.
 
-import { useEffect, useRef, useState } from 'react';
-import type { ConfirmationResult, RecaptchaVerifier } from 'firebase/auth';
+import { useEffect, useState } from 'react';
+import type { Auth, User as FirebaseUser } from 'firebase/auth';
 import { api } from './api';
 
 export type SiteConfig = {
   /** "live" is the real service, "demo" the showcase with sample shops. */
   mode: 'live' | 'demo';
-  /** "sms" sends a real code, "demo" accepts any 4 digits, "off" means login is not set up yet. */
-  login: 'sms' | 'demo' | 'off';
+  /** "firebase" means Google or email and password, "demo" any 4 digits, "off" not set up yet. */
+  login: 'firebase' | 'demo' | 'off';
   firebase: { apiKey: string; authDomain: string; projectId: string } | null;
 };
 
@@ -44,88 +45,116 @@ export function useSiteConfig(): SiteConfig | null {
   return config;
 }
 
-/** What the server needs to log someone in: a demo code, or Firebase's proof of the number. */
+/** What the server needs to log someone in: a demo code, or Firebase's signed token. */
 export type LoginProof = { phone?: string; code?: string; idToken?: string };
 
-// Firebase's error codes, in words a customer can act on. Some only an admin can fix.
-const SMS_ERRORS: Record<string, string> = {
-  'auth/invalid-phone-number': 'That mobile number does not look right.',
-  'auth/too-many-requests': 'Too many tries from this device. Wait a while and try again.',
-  'auth/quota-exceeded': 'We cannot send more codes right now. Try again in a little while.',
-  'auth/invalid-verification-code': 'That code is not right. Check the SMS and try again.',
-  'auth/code-expired': 'That code has expired. Ask for a new one.',
-  'auth/missing-verification-code': 'Enter the code from the SMS.',
-  'auth/captcha-check-failed': 'The security check did not pass. Reload the page and try again.',
-  'auth/invalid-app-credential': 'The security check did not pass. Reload the page and try again.',
-  'auth/network-request-failed': 'Could not reach the SMS service. Check your connection and try again.',
-  'auth/operation-not-allowed': 'Login by SMS is not switched on yet. (Admin: enable Phone sign-in in Firebase.)',
-  'auth/billing-not-enabled': 'SMS codes cannot be sent yet. (Admin: Firebase needs the pay-as-you-go plan.)',
-  'auth/unauthorized-domain': 'This site may not send codes yet. (Admin: add it to Firebase\'s authorised domains.)',
+/** The person closed the Google window: not an error to show. */
+export class Cancelled extends Error {}
+
+/** Firebase's error codes, in words a person can act on. Some only an admin can fix. */
+const ERRORS: Record<string, string> = {
+  'auth/popup-blocked': 'Your browser blocked the Google window. Allow pop-ups for this site and try again.',
+  'auth/invalid-credential': 'That email and password do not match. Check them, or reset your password.',
+  'auth/wrong-password': 'That email and password do not match. Check them, or reset your password.',
+  'auth/user-not-found': 'That email and password do not match. Check them, or create an account.',
+  'auth/invalid-email': 'That email address does not look right.',
+  'auth/missing-email': 'Enter your email address.',
+  'auth/email-already-in-use': 'There is already an account with that email. Log in instead, or reset its password.',
+  'auth/weak-password': 'Choose a password of at least 8 characters.',
+  'auth/too-many-requests': 'Too many tries. Wait a few minutes and try again.',
+  'auth/network-request-failed': 'Could not reach the login service. Check your connection and try again.',
+  'auth/account-exists-with-different-credential': 'This email already logs in another way. Try "Continue with Google", or your email and password.',
+  'auth/operation-not-allowed': 'This way of logging in is not switched on yet. (Admin: enable it in Firebase Authentication.)',
+  'auth/unauthorized-domain': 'This site may not log people in yet. (Admin: add it to Firebase\'s authorised domains.)',
+  'auth/unauthorized-continue-uri': 'This site may not log people in yet. (Admin: add it to Firebase\'s authorised domains.)',
 };
 
-const smsError = (e: unknown) => {
-  const code = (e as { code?: string })?.code;
-  return new Error((code && SMS_ERRORS[code]) || 'The code could not be sent. Try again.');
-};
+function failure(e: unknown): Error {
+  const code = (e as { code?: string })?.code ?? '';
+  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return new Cancelled('cancelled');
+  return new Error(ERRORS[code] || 'Logging in did not work. Please try again.');
+}
 
-/**
- * What a login form needs, whichever way this server logs people in. `captchaId` is the id of an
- * empty element in the form: Firebase puts its invisible "are you a person?" check there.
- */
-export function usePhoneLogin(captchaId: string) {
-  const config = useSiteConfig();
-  const sent = useRef<ConfirmationResult | null>(null);
-  const verifier = useRef<RecaptchaVerifier | null>(null);
-  const sms = config?.login === 'sms' && !!config.firebase;
+async function firebase(config: SiteConfig) {
+  if (!config.firebase) throw new Error('Logging in is not set up on this server yet.');
+  const { getApps, initializeApp } = await import('firebase/app');
+  const fb = await import('firebase/auth');
+  const auth: Auth = fb.getAuth(getApps()[0] ?? initializeApp(config.firebase));
+  auth.languageCode = 'en';
+  return { fb, auth };
+}
 
-  useEffect(
-    () => () => {
-      verifier.current?.clear();
-      verifier.current = null;
-    },
-    [],
-  );
+/** Where Firebase's emails send the person back to: this page. */
+const here = () => ({ url: window.location.origin + window.location.pathname });
 
-  return {
-    config,
-    sms,
-    /** Login is not set up on this server yet. */
-    off: config?.login === 'off',
-    codeLength: sms ? 6 : 4,
+/** Turn a Firebase sign-in into our server's proof, then let Firebase forget it: our server keeps the login. */
+async function proofFrom(user: FirebaseUser, auth: Auth): Promise<LoginProof> {
+  const idToken = await user.getIdToken();
+  const { signOut } = await import('firebase/auth');
+  void signOut(auth).catch(() => undefined);
+  return { idToken };
+}
 
-    /** Send the code to +91 and this number. In the demo there is nothing to send. */
-    async send(phone: string): Promise<void> {
-      if (!sms || !config?.firebase) return;
-      const { getApps, initializeApp } = await import('firebase/app');
-      const { getAuth, RecaptchaVerifier: Verifier, signInWithPhoneNumber } = await import('firebase/auth');
-      const app = getApps()[0] ?? initializeApp(config.firebase);
-      const auth = getAuth(app);
-      auth.languageCode = 'en';
-      verifier.current?.clear();
-      verifier.current = new Verifier(auth, captchaId, { size: 'invisible' });
-      try {
-        sent.current = await signInWithPhoneNumber(auth, '+91' + phone, verifier.current);
-      } catch (e) {
-        verifier.current?.clear();
-        verifier.current = null;
-        throw smsError(e);
-      }
-    },
+/** "Continue with Google": Google's own window opens to choose the account. */
+export async function googleProof(config: SiteConfig): Promise<LoginProof> {
+  const { fb, auth } = await firebase(config);
+  try {
+    const { user } = await fb.signInWithPopup(auth, new fb.GoogleAuthProvider());
+    return await proofFrom(user, auth);
+  } catch (e) {
+    throw failure(e);
+  }
+}
 
-    /** Check the code and turn it into what our server needs to log the person in. */
-    async proof(phone: string, code: string): Promise<LoginProof> {
-      if (!sms) return { phone, code };
-      if (!sent.current) throw new Error('Ask for a code first.');
-      try {
-        const credential = await sent.current.confirm(code);
-        const idToken = await credential.user.getIdToken();
-        // Our server keeps the login from here on; Firebase need not remember this person.
-        const { getAuth, signOut } = await import('firebase/auth');
-        void signOut(getAuth()).catch(() => undefined);
-        return { idToken };
-      } catch (e) {
-        throw smsError(e);
-      }
-    },
-  };
+/** An email address that has not been confirmed yet. The page offers to send the link again. */
+export class Unconfirmed extends Error {}
+
+/** Log in with an email and password. An address not yet confirmed cannot log in. */
+export async function passwordProof(config: SiteConfig, email: string, password: string): Promise<LoginProof> {
+  const { fb, auth } = await firebase(config);
+  let user: FirebaseUser;
+  try {
+    ({ user } = await fb.signInWithEmailAndPassword(auth, email, password));
+  } catch (e) {
+    throw failure(e);
+  }
+  if (!user.emailVerified) {
+    void fb.signOut(auth).catch(() => undefined);
+    throw new Unconfirmed(`Confirm your email first: open the link we sent to ${email}, then log in here.`);
+  }
+  return proofFrom(user, auth);
+}
+
+/** Make a new email and password account, and send the link that confirms the address. */
+export async function createAccount(config: SiteConfig, email: string, password: string): Promise<void> {
+  const { fb, auth } = await firebase(config);
+  try {
+    const { user } = await fb.createUserWithEmailAndPassword(auth, email, password);
+    await fb.sendEmailVerification(user, here());
+    await fb.signOut(auth);
+  } catch (e) {
+    throw failure(e);
+  }
+}
+
+/** Send the confirmation link again. Needs the password, to prove it is the person's own account. */
+export async function resendConfirmation(config: SiteConfig, email: string, password: string): Promise<void> {
+  const { fb, auth } = await firebase(config);
+  try {
+    const { user } = await fb.signInWithEmailAndPassword(auth, email, password);
+    if (!user.emailVerified) await fb.sendEmailVerification(user, here());
+    await fb.signOut(auth);
+  } catch (e) {
+    throw failure(e);
+  }
+}
+
+/** Email a link to choose a new password. */
+export async function resetPassword(config: SiteConfig, email: string): Promise<void> {
+  const { fb, auth } = await firebase(config);
+  try {
+    await fb.sendPasswordResetEmail(auth, email, here());
+  } catch (e) {
+    throw failure(e);
+  }
 }

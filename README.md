@@ -259,10 +259,10 @@ send it as `Authorization: Bearer <token>`; a token works only on the seat it wa
 | Method and path | Who | What |
 |---|---|---|
 | `GET /catalog` | everyone | Products, shops, stock and prices |
-| `GET /config` | everyone | `{ mode, login, firebase }`: demo or live, and the public Firebase settings for SMS login |
+| `GET /config` | everyone | `{ mode, login, firebase }`: demo or live, and the public Firebase settings for logging in |
 | `GET /demo` | everyone | The ready-made shop owner and partner accounts (demo only; 404 on the live service) |
 | `GET /nearby-shops?lat=&lng=` | everyone | Real shops within 5 km that are not on LocalRush, from OpenStreetMap |
-| `POST /auth/login` | everyone | `{ name, idToken }` with Firebase's token after an SMS code, or `{ name, phone, code }` in the demo; only this seat's kind of account. The app also gets a `token` |
+| `POST /auth/login` | everyone | `{ name, idToken }` with Firebase's token (Google, or email and password), or `{ name, phone, code }` in the demo; only this seat's kind of account. The app also gets a `token` |
 | `POST /auth/logout` | | |
 | `GET /me`, `PATCH /me` | logged in | Current user; change name |
 | `DELETE /me/addresses/:id` | logged in | Remove a saved address |
@@ -278,9 +278,9 @@ send it as `Authorization: Bearer <token>`; a token works only on the seat it wa
 | `GET /partner/earnings?period=` | partner | What the partner earned: totals, pay waiting on the current delivery, cash collected, and the deliveries |
 | `GET /live` | everyone | Server-sent events |
 | `GET /admin` | admin | Every shop with its owner, every delivery partner |
-| `POST /admin/shops` | admin | Add a shop and its owner's account: `{ name, kind, area, lat, lng, open, close, ownerName, ownerPhone }` |
+| `POST /admin/shops` | admin | Add a shop and its owner's account: `{ name, kind, area, lat, lng, open, close, ownerName, ownerEmail, ownerMobile }` |
 | `PUT /admin/shops/:id` | admin | Change a shop's details, or pause it |
-| `POST /admin/partners` | admin | Add a delivery partner: `{ name, phone }` |
+| `POST /admin/partners` | admin | Add a delivery partner: `{ name, email, mobile }` |
 | `GET /health` | everyone | Version, storage mode, database state, mode, and what live setup is missing |
 
 ## Where things live
@@ -372,56 +372,71 @@ LocalRush runs in one of two modes (`server/config.ts`):
 | | Demo | Live |
 |---|---|---|
 | Used by | `npm run dev`, the tests, the minikube cluster | The production image, and Render |
-| Login | Any 4-digit code | A real SMS code (Firebase) |
+| Login | Phone number and any 4-digit code | "Continue with Google", or email and password (Firebase) |
 | Data | Sample shops, stock and accounts | Only the product catalogue; admins add the shops and partners |
 | `/api/demo` (lists demo numbers) | On | Off |
 | Login cookie | Built-in secret allowed | Needs its own `SESSION_SECRET`, and is sent over https only |
 
 `LOCALRUSH_MODE` sets it; without it, a production server is live. Open `/api/health` on any copy
-to see its mode and what is still missing: `"login":"sms"` means SMS login works, `"off"` means
-Firebase is not set up yet, `"sessionSecret":"missing"` means the server refuses requests until
-one is set, and `"admins"` counts the admin numbers.
+to see its mode and what is still missing: `"login":"firebase"` means logging in works, `"off"`
+means Firebase is not set up yet, `"sessionSecret":"missing"` means the server refuses requests
+until one is set, and `"admins"` counts the admin emails.
 
-You need three free accounts. Each step below is done by you in that service's website.
+On the live service an account is its **verified email**: a Google account, or an email and
+password whose address was confirmed by a link. Customers give their mobile number at checkout,
+for the delivery partner to call; it is remembered for next time. Order history belongs to the
+account, so two people who share a phone for deliveries never see each other's orders.
 
-### 1. The database: MongoDB Atlas
+Everything below runs on free plans: no card is needed.
 
-1. Sign up at https://www.mongodb.com/cloud/atlas/register and create a **free (M0) cluster**.
-   Pick AWS, **Singapore (ap-southeast-1)**: the same region as the Render service below.
-2. **Database Access**: add a database user with a generated password. Keep the password.
-3. **Network Access**: add `0.0.0.0/0` (allow access from anywhere). Render's free plan has no
-   fixed address to allow instead; the user's password is what protects the database.
-4. **Connect > Drivers**: copy the connection string, put the password in it, and add the
-   database name `localrush` before the `?`:
-   `mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/localrush?retryWrites=true&w=majority`
+### 1. The database: MongoDB Atlas (free M0)
 
-### 2. SMS login: Firebase
+With the Atlas CLI (`atlas auth login` first; on Windows the program is
+`C:\Program Files (x86)\MongoDB Atlas CLI\atlas.exe`):
+
+```bash
+atlas clusters create localrush --provider AWS --region AP_SOUTHEAST_1 --tier M0
+atlas accessLists create 0.0.0.0/0 --type cidrBlock --comment "Render free plan has no fixed IP"
+atlas dbusers create --username localrush-app --role readWrite@localrush
+atlas clusters connectionStrings describe localrush
+```
+
+The third command asks for a password: use 20 or more letters and digits only (other symbols
+break the connection string). Render's free plan has no fixed address to allow, so the access list
+is open and that password is what protects the database. The connection string is then:
+
+`mongodb+srv://localrush-app:PASSWORD@HOST/localrush?retryWrites=true&w=majority&appName=localrush`
+
+with `HOST` from the last command. Or do the same in the Atlas website: a free M0 cluster in
+Singapore, a database user, and Network Access `0.0.0.0/0`.
+
+### 2. Login: Firebase (free Spark plan)
 
 1. At https://console.firebase.google.com create a project (Google Analytics is not needed).
-2. **Build > Authentication > Get started > Sign-in method**: enable **Phone**.
-3. Upgrade the project to the **Blaze (pay as you go)** plan: Firebase sends SMS codes to real
-   numbers only on Blaze, and charges per SMS. In Google Cloud's billing, set a budget alert.
-4. **Authentication > Settings > SMS region policy**: allow only India. This stops anyone
-   making you pay for SMS to other countries.
-5. **Project settings (the gear) > General > Your apps**: add a **Web** app. Copy its `apiKey`
+2. **Security > Authentication > Get started > Sign-in method**:
+   - enable **Google** (it asks for a support email: choose yours), and
+   - enable **Email/Password** (leave "Email link" off).
+3. **Project settings (the gear) > General > Your apps**: add a **Web** app. Copy its `apiKey`
    and `projectId`.
-6. Optional, for testing without SMS charges: **Sign-in method > Phone > Phone numbers for
-   testing**: add a made-up number with a fixed code.
 
-After step 3 of Render, also add the site's address (for example `localrush.onrender.com`) under
-**Authentication > Settings > Authorized domains**, or codes cannot be sent from it.
+After step 3 of Render, add the site's address (for example `localrush.onrender.com`) under
+**Authentication > Settings > Authorized domains**, or logging in from it is refused.
 
-### 3. Hosting: Render
+The free plan has no limit on Google logins. Email and password accounts confirm their address
+with one email (up to 1,000 a day free), and "Forgot your password?" sends one (150 a day).
+Emailed sign-in *links* are not used: the free plan allows only 5 a day.
+
+### 3. Hosting: Render (free plan)
 
 1. Sign up at https://render.com with your GitHub account.
 2. **New > Blueprint**, pick this repository. Render reads `render.yaml` and asks for:
-   - `MONGODB_URI`: the Atlas string from step 1.
-   - `FIREBASE_PROJECT_ID` and `FIREBASE_API_KEY`: from Firebase step 5.
-   - `ADMIN_PHONES`: your own 10-digit mobile number (several, comma separated, if needed).
+   - `MONGODB_URI`: the Atlas connection string from step 1.
+   - `FIREBASE_PROJECT_ID` and `FIREBASE_API_KEY`: from Firebase step 3.
+   - `ADMIN_EMAILS`: your own email (several, comma separated, if needed).
 
    It creates `SESSION_SECRET` by itself.
 3. Wait for the first build (5 to 10 minutes), then open `https://YOUR-SERVICE.onrender.com/api/health`.
-   It should say `"mode":"live"`, `"login":"sms"`, `"database":"connected"`,
+   It should say `"mode":"live"`, `"login":"firebase"`, `"database":"connected"`,
    `"sessionSecret":"set"` and `"admins":1`.
 4. Add that address to Firebase's authorized domains (above).
 5. Optional, in the service's **Environment** tab: `SUPPORT_CONTACT` (shown on the terms and
@@ -434,16 +449,22 @@ visitors and takes up to a minute to wake; change `plan: free` to `starter` in `
 
 ### 4. First day
 
-1. Open the site, log in with your admin number (an SMS comes), then **Account > Open admin**.
+1. Open the site and log in with your admin email (Google), then **Account > Open admin**.
 2. Add each shop: name, kind, area, location (stand in the shop and press "Use my location",
-   or paste the numbers from Google Maps), opening hours, and the owner's name and mobile.
-3. Add each delivery partner's name and mobile.
-4. Each owner logs in at `/dashboard` with their number and adds their stock and prices under
-   **Stock and prices** (from the catalogue, or new products).
-5. Partners log in at `/partner` and go online. Customers can now order.
+   or paste the numbers from Google Maps), opening hours, and the owner's name, **email** and
+   (optionally) mobile.
+3. Add each delivery partner's name, email and mobile.
+4. Each owner logs in at `/dashboard` with that email ("Continue with Google" for Gmail, or
+   "First time? Set a password for your email") and adds their stock and prices under
+   **Stock and prices**.
+5. Partners log in at `/partner` the same way and go online. Customers can now order.
 
-One mobile number is one account: a number already used to order cannot also be a shop owner or
-partner, so owners and partners should use a number they have not ordered with.
+One email is one account: an email already used to shop cannot also be a shop owner or partner,
+so owners and partners should use an email they have not shopped with.
+
+The phone apps (`partner-app/`, `vendor-app/`) still log in with the demo's phone and code, so
+they work against a demo server only; on the live service, partners and owners use `/partner` and
+`/dashboard` in their phone's browser.
 
 ## Things to know when you demo it
 

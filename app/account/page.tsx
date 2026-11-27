@@ -38,9 +38,16 @@ export default function AccountPage() {
           <span>Name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
         </label>
+        {user.email && (
+          <p className="box-row">
+            <span>
+              Email <b>{user.email}</b>
+            </span>
+          </p>
+        )}
         <p className="box-row">
           <span>
-            Mobile number <b>{user.phone}</b>
+            Mobile number <b>{user.mobile || user.phone || 'given at checkout'}</b>
           </span>
         </p>
         <button type="submit" className="btn" disabled={name.trim() === user.name || name.trim().length < 2}>
@@ -79,7 +86,9 @@ export default function AccountPage() {
             See your orders
           </Link>
         </p>
-        <p className="quiet small">Your orders are saved with your mobile number. Log in with {user.phone} on any device to see them.</p>
+        <p className="quiet small">
+          Your orders are saved with your account. Log in with {user.email ?? user.phone} on any device to see them.
+        </p>
       </section>
 
       {user.admin && (

@@ -211,7 +211,7 @@ export const actions = {
   },
 
   /** Send the cart to the server, which picks the shops and creates one order per shop. */
-  async placeOrders(input: { line: string; tag: string; payment: Order['payment'] }) {
+  async placeOrders(input: { line: string; tag: string; payment: Order['payment']; mobile: string }) {
     const result = await api<{ orders: Order[]; leftOut: string[]; user: Me | null }>('POST', 'orders', {
       cart: state.cart,
       place: state.place,

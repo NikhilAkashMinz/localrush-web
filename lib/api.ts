@@ -16,7 +16,11 @@ export type Address = { id: string; tag: string; line: string; place: Place };
 export type Me = {
   id: string;
   name: string;
-  phone: string;
+  /** The number this account logs in with (the demo). Live accounts log in with `email`. */
+  phone?: string;
+  email?: string;
+  /** The number to call about deliveries. */
+  mobile?: string;
   role: Role;
   storeId?: string;
   online?: boolean;

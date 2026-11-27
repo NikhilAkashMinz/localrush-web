@@ -80,6 +80,21 @@ async function renameDemoPartners(db: Db) {
   );
 }
 
+/**
+ * A unique index on `field` that ignores documents without it. Databases from before email
+ * logins have a plain unique index on phone, which would allow only one account without a
+ * phone: that one is replaced. Safe when several copies of the server start at once.
+ */
+async function uniqueWhenSet(collection: Collection<WithId<User>>, field: 'phone' | 'email') {
+  const existing = await collection.indexes().catch(() => []);
+  const plain = existing.find((i) => i.name === `${field}_1` && !i.partialFilterExpression);
+  if (plain?.name) await collection.dropIndex(plain.name).catch(() => undefined);
+  await collection.createIndex(
+    { [field]: 1 },
+    { name: `${field}_unique`, unique: true, partialFilterExpression: { [field]: { $type: 'string' } } },
+  );
+}
+
 /** `reset` empties the database first. Only the tests use it. */
 export async function createMongoRepo(uri: string, options: { reset?: boolean } = {}): Promise<Repo> {
   const { MongoClient: Client } = await import('mongodb');
@@ -104,9 +119,12 @@ export async function createMongoRepo(uri: string, options: { reset?: boolean } 
 
   // One index per question the site asks. Creating an index that exists is a no-op, so a
   // database from an older version simply gains the new ones on the next start.
+  // One account per login phone and one per login email, so logging in again finds the same
+  // account. Only accounts that have one count: live accounts log in by email and may have no
+  // phone, and demo accounts have no email.
+  await uniqueWhenSet(users, 'phone');
+  await uniqueWhenSet(users, 'email');
   await Promise.all([
-    // One account per mobile number: logging in again with it finds the same account.
-    users.createIndex({ phone: 1 }, { unique: true }),
     // The admin page's lists of shop owners and delivery partners.
     users.createIndex({ role: 1, createdAt: 1 }),
     orders.createIndex({ customerId: 1, createdAt: -1 }),
@@ -175,6 +193,9 @@ export async function createMongoRepo(uri: string, options: { reset?: boolean } 
 
     async userByPhone(phone) {
       return strip<User>(await users.findOne({ phone }));
+    },
+    async userByEmail(email) {
+      return strip<User>(await users.findOne({ email }));
     },
     async userById(id) {
       return strip<User>(await users.findOne({ _id: id }));
